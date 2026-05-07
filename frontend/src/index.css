@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { 
+  --primary: #2c3e50; 
+  --accent: #3498db; 
+  --success: #27ae60; 
+  --warning: #f39c12; 
+  --danger: #e74c3c; 
+  --bg: #f4f7f6; 
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root { 
+  font-family: 'Segoe UI', sans-serif; 
+  background: var(--bg); 
+  height: 100vh; 
+  width: 100%;
+  overflow: hidden; 
+}
+
+#root {
+  display: flex;
+}
+
+/* Sidebar */
+.sidebar { width: 260px; background: var(--primary); color: white; padding: 20px; display: flex; flex-direction: column; flex-shrink: 0; }
+.sidebar h2 { font-size: 1.1rem; letter-spacing: 1px; border-bottom: 1px solid #444; padding-bottom: 15px; text-align: center; margin: 0 0 10px 0; font-weight: 700; }
+.nav-item { padding: 12px; margin: 8px 0; border-radius: 6px; cursor: pointer; transition: 0.2s; display: flex; align-items: center; color: white; }
+.nav-item:hover, .nav-item.active { background: rgba(255,255,255,0.1); color: var(--accent); }
+.nav-item i { margin-right: 12px; width: 20px; text-align: center; }
+
+/* Main Content */
+.main-content { flex-grow: 1; padding: 30px; overflow-y: auto; color: #333; }
+.view-section { display: none; } 
+.view-section.active { display: block; } 
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; }
+
+/* Modular Cards */
+.card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; transition: transform 0.2s; border-bottom: 4px solid #ddd; }
+.card:hover { transform: translateY(-5px); }
+.card i { font-size: 2.5rem; margin-bottom: 15px; color: var(--accent); }
+.card h3 { margin: 10px 0; color: #333; font-size: 1rem; font-weight: 700; }
+.card p { color: #777; font-size: 0.85rem; margin-bottom: 20px; height: 32px; }
+
+.btn { width: 100%; padding: 10px; border: none; border-radius: 5px; cursor: pointer; font-weight: 600; color: white; background: var(--accent); transition: opacity 0.2s; }
+.btn:hover { opacity: 0.9; }
+.card.generate { border-color: var(--accent); }
+.card.comm { border-color: var(--warning); }
+.card.data { border-color: var(--success); }
+.card.danger { border-color: var(--danger); }
+
+/* Table Styling */
+table { width: 100%; border-collapse: collapse; background: white; border-radius: 12px; overflow: hidden; margin-top: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+th, td { padding: 15px; text-align: left; border-bottom: 1px solid #eee; }
+th { background: #f8f9fa; color: var(--primary); font-weight: 600; }
+
+/* Chatbot Styling */
+.chat-container { display: flex; flex-direction: column; height: 75vh; background: white; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); overflow: hidden; margin-top: 20px; }
+.chat-history { flex-grow: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 15px; }
+.msg { padding: 12px 18px; border-radius: 15px; max-width: 75%; line-height: 1.4; font-size: 0.95rem; }
+.msg.user { background: var(--accent); color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
+.msg.bot { background: #f0f2f5; color: #333; align-self: flex-start; border-bottom-left-radius: 4px; border: 1px solid #e1e4e8; }
+.msg.error { background: #fdeaea; color: var(--danger); border-color: #f5c6c6; }
+.chat-input-area { display: flex; padding: 15px; background: #f8f9fa; border-top: 1px solid #eee; }
+.chat-input-area input { flex-grow: 1; padding: 12px; border: 1px solid #ddd; border-radius: 6px; margin-right: 10px; outline: none; transition: border 0.2s; color: #333;}
+.chat-input-area input:focus { border-color: var(--accent); }
+
+/* Modal */
+.modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; display: flex; justify-content: center; align-items: center; }
+.modal { background: white; padding: 30px; border-radius: 12px; width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); color: #333; }
+.modal h2 { margin-bottom: 20px; font-weight: 700; }
+.modal input, .modal textarea { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; color: #333; font-family: 'Segoe UI', sans-serif;}
+.modal-btns { display: flex; gap: 10px; margin-top: 15px; }
+
