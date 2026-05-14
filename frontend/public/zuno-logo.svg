@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Red rounded square background -->
+  <rect width="200" height="200" rx="22" ry="22" fill="#fd2d30"/>
+
+  <!-- Left arrow at top-left -->
+  <polyline points="62,42 44,58 62,74" fill="none" stroke="white" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Z shape top horizontal bar -->
+  <line x1="50" y1="58" x2="148" y2="58" stroke="white" stroke-width="12" stroke-linecap="round"/>
+
+  <!-- Z shape diagonal -->
+  <line x1="148" y1="58" x2="52" y2="130" stroke="white" stroke-width="12" stroke-linecap="round"/>
+
+  <!-- Z shape bottom horizontal bar -->
+  <line x1="52" y1="130" x2="150" y2="130" stroke="white" stroke-width="12" stroke-linecap="round"/>
+
+  <!-- Right arrow at bottom-right -->
+  <polyline points="138,116 156,130 138,144" fill="none" stroke="white" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- ZUNO text -->
+  <text x="100" y="182" text-anchor="middle" font-family="'Arial Black', 'Plus Jakarta Sans', sans-serif" font-weight="900" font-size="38" fill="white" letter-spacing="4">ZUNO</text>
+</svg>
