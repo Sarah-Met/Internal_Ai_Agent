@@ -217,11 +217,11 @@ function Modal({ config, onClose, onSuccess, onOptimisticDelete, staffList = [] 
 }
 
 /* ─── Metric Row ─── */
-function Metrics({ employeeCount }) {
+function Metrics({ metrics }) {
   const items = [
-    { label: 'Total Employees', value: employeeCount !== null ? String(employeeCount) : '—',  sub: 'From database' },
-    { label: 'AI Queries Today', value: '—',  sub: 'Chatbot sessions' },
-    { label: 'Reports Generated', value: '—', sub: 'This month' },
+    { label: 'Total Employees', value: metrics?.totalEmployees !== null && metrics?.totalEmployees !== undefined ? String(metrics.totalEmployees) : '—',  sub: 'From database' },
+    { label: 'AI Queries Today', value: metrics?.aiQueriesToday !== null && metrics?.aiQueriesToday !== undefined ? String(metrics.aiQueriesToday) : '—',  sub: 'Chatbot sessions' },
+    { label: 'Reports Generated', value: metrics?.reportsGenerated !== null && metrics?.reportsGenerated !== undefined ? String(metrics.reportsGenerated) : '—', sub: 'This month' },
   ];
   return (
     <div className="grid mb-5">
@@ -259,6 +259,30 @@ export default function HRPanel({ view, staff = [], onStaffLoaded }) {
   const [editingRowId, setEditingRowId] = useState(null);
   const [editFormData, setEditFormData] = useState({});
   const [editLoading, setEditLoading] = useState(false);
+
+  const [metrics, setMetrics] = useState({
+    totalEmployees: null,
+    aiQueriesToday: null,
+    reportsGenerated: null
+  });
+
+  const fetchMetrics = async () => {
+    try {
+      const res = await fetch('http://localhost:3000/auth/metrics');
+      if (res.ok) {
+        const data = await res.json();
+        setMetrics(data);
+      }
+    } catch (err) {
+      console.error('Error fetching metrics:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (view === 'dashboard') {
+      fetchMetrics();
+    }
+  }, [view, staff.length]);
 
   const [isAddingInline, setIsAddingInline] = useState(false);
   const [addFormData, setAddFormData] = useState({});
@@ -465,6 +489,17 @@ export default function HRPanel({ view, staff = [], onStaffLoaded }) {
       const a = document.createElement('a');
       a.href = url; a.download = filename; a.click();
       window.URL.revokeObjectURL(url);
+
+      try {
+        await fetch('http://localhost:3000/auth/log-report', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reportType: type }),
+        });
+        fetchMetrics();
+      } catch (err) {
+        console.error('Error logging report:', err);
+      }
     } catch {
       alert('Failed to generate report. Is n8n active?');
     } finally {
@@ -574,7 +609,7 @@ export default function HRPanel({ view, staff = [], onStaffLoaded }) {
 
             {/* Role filter */}
             <select value={filterRole} onChange={e => setFilterRole(e.target.value)} style={{ height: '32px', border: '1.5px solid #e2e8f0', borderRadius: '6px', padding: '0 8px', fontFamily: 'inherit', fontSize: '0.82rem', color: 'var(--navy)', background: 'white', cursor: 'pointer' }}>
-              <option value="all">All Roles</option>
+              <option value="all" style={{ color: '#059794', fontWeight: 'bold' }}>All Roles</option>
               <option value="1">Admin</option>
               <option value="2">HR</option>
               <option value="3">IT</option>
@@ -583,7 +618,7 @@ export default function HRPanel({ view, staff = [], onStaffLoaded }) {
 
             {/* Department filter */}
             <select value={filterDept} onChange={e => setFilterDept(e.target.value)} style={{ height: '32px', border: '1.5px solid #e2e8f0', borderRadius: '6px', padding: '0 8px', fontFamily: 'inherit', fontSize: '0.82rem', color: 'var(--navy)', background: 'white', cursor: 'pointer' }}>
-              <option value="all">All Departments</option>
+              <option value="all" style={{ color: '#059794', fontWeight: 'bold' }}>All Departments</option>
               {deptOptions.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
 
@@ -679,7 +714,7 @@ export default function HRPanel({ view, staff = [], onStaffLoaded }) {
             </thead>
             <tbody>
               {isAddingInline && (
-                <tr className="inline-add-row" style={{ borderLeft: '4px solid #00ACC1' }}>
+                <tr className="inline-add-row" style={{ borderLeft: '4px solid #059794' }}>
                   <td style={{ background: '#E0F7FA', borderBottom: '1px solid #B2EBF2', fontWeight: 700, color: 'var(--grey)', fontSize: '0.8rem' }}>#New</td>
                   <td style={{ background: '#E0F7FA', borderBottom: '1px solid #B2EBF2' }}>
                     <input 
@@ -777,8 +812,8 @@ export default function HRPanel({ view, staff = [], onStaffLoaded }) {
                       <>
                         <td style={{ fontWeight: 600 }}>{emp.name || '—'}</td>
                         <td style={
-                          emp.role === 1 ? { color: '#00ACC1', fontWeight: '700' } :
-                          emp.role === 2 ? { color: '#00ACC1', fontWeight: '700' } :
+                          emp.role === 1 ? { color: '#059794', fontWeight: '700' } :
+                          emp.role === 2 ? { color: '#059794', fontWeight: '700' } :
                           emp.role === 3 ? { color: 'var(--navy-mid)', fontWeight: '600' } :
                           { color: 'var(--grey)', fontWeight: '500' }
                         }>
@@ -903,7 +938,7 @@ export default function HRPanel({ view, staff = [], onStaffLoaded }) {
   /* ── Dashboard View ── */
   return (
     <>
-      <Metrics employeeCount={staff.length > 0 ? staff.length : null} />
+      <Metrics metrics={metrics} />
 
       <div style={{ marginTop: 24, marginBottom: 12 }}>
         <p className="font-bold" style={{ fontSize: '0.9rem', color: 'var(--navy)' }}>Automation Actions</p>

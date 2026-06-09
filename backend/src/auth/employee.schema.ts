@@ -49,3 +49,20 @@ export class SessionLog extends Document {
 }
 
 export const SessionLogSchema = SchemaFactory.createForClass(SessionLog);
+
+@Schema({ collection: 'ai_queries', timestamps: true })
+export class AIQuery extends Document {
+  @Prop({ required: true })
+  question: string;
+}
+
+export const AIQuerySchema = SchemaFactory.createForClass(AIQuery);
+
+@Schema({ collection: 'report_logs', timestamps: true })
+export class ReportLog extends Document {
+  @Prop({ required: true })
+  reportType: string;
+}
+
+export const ReportLogSchema = SchemaFactory.createForClass(ReportLog);
+

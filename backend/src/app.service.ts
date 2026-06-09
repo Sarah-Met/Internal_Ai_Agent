@@ -21,6 +21,9 @@ export class AppService {
       if (error.response) {
         console.error('n8n response status:', error.response.status);
         console.error('n8n response data:', error.response.data);
+        if (error.response.status === 500) {
+          return { error: 'n8n workflow crashed during execution. This usually happens when the Hugging Face embedding API or the LLM provider rate-limits requests.' };
+        }
       }
       return { error: 'Failed to reach n8n' };
     }

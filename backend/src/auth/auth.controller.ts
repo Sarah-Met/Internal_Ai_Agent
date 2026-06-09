@@ -27,4 +27,38 @@ export class AuthController {
   async getLogs() {
     return this.authService.getSessionLogs();
   }
+
+  @Get('metrics')
+  async getMetrics() {
+    return this.authService.getMetrics();
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('log-report')
+  async logReport(@Body() body: { reportType: string }) {
+    return this.authService.logReport(body.reportType);
+  }
+
+  @Get('faq')
+  async getFaqs() {
+    return this.authService.getFaqs();
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('faq/update')
+  async updateFaq(@Body() body: { id: string; question: string; answer: string; category: string; tags: string }) {
+    return this.authService.updateFaq(body.id, body.question, body.answer, body.category, body.tags);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('faq/create')
+  async createFaq(@Body() body: { question: string; answer: string; category: string; tags: string }) {
+    return this.authService.createFaq(body.question, body.answer, body.category, body.tags);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('faq/delete')
+  async deleteFaq(@Body() body: { id: string }) {
+    return this.authService.deleteFaq(body.id);
+  }
 }

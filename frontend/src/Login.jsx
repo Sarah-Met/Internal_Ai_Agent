@@ -99,26 +99,33 @@ export default function Login({ onLoginSuccess }) {
           <div style={{
             display: 'flex',
             alignItems: 'flex-start',
-            gap: '14px',
-            background: 'linear-gradient(135deg, rgba(0,172,193,0.07) 0%, rgba(0,172,193,0.03) 100%)',
-            border: '1px solid rgba(0,172,193,0.25)',
-            borderLeft: '4px solid var(--teal)',
-            borderRadius: '10px',
-            padding: '14px 16px',
-            marginBottom: '4px',
+            gap: '12px',
+            borderLeft: '3px solid var(--teal)',
+            padding: '12px 16px',
+            background: 'var(--off-white)',
+            borderRadius: '6px',
+            marginBottom: '16px',
           }}>
-            <div style={{
-              width: '36px', height: '36px', borderRadius: '8px',
-              background: 'rgba(0,172,193,0.12)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0, fontSize: '16px',
-            }}>🔐</div>
+            <svg 
+              width="16" 
+              height="16" 
+              viewBox="0 0 24 24" 
+              fill="none" 
+              stroke="var(--teal)" 
+              strokeWidth="2" 
+              strokeLinecap="round" 
+              strokeLinejoin="round" 
+              style={{ marginTop: '2px', flexShrink: 0 }}
+            >
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
             <div>
-              <p style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--teal)', margin: 0, letterSpacing: '0.2px' }}>
+              <p style={{ fontWeight: 600, fontSize: '0.825rem', color: 'var(--teal)', margin: 0 }}>
                 Password Reset Required
               </p>
-              <p style={{ fontSize: '0.78rem', color: 'var(--navy-mid)', margin: '3px 0 0', lineHeight: 1.5 }}>
-                Your account was assigned a temporary password. Please create a new secure password to proceed.
+              <p style={{ fontSize: '0.78rem', color: 'var(--navy-mid)', margin: '4px 0 0', lineHeight: 1.45 }}>
+                First-time login detected. Please create a new secure password to proceed to your account.
               </p>
             </div>
           </div>
