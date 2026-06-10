@@ -17,7 +17,7 @@ export class AuthService {
   ) {}
 
   async login(email: string, pass: string) {
-    const user = await this.employeeModel.findOne({ email }).exec();
+    const user = await this.employeeModel.findOne({ email: new RegExp('^' + email + '$', 'i') }).exec();
     if (!user) {
       throw new UnauthorizedException('Invalid email or password');
     }
@@ -55,7 +55,7 @@ export class AuthService {
   }
 
   async changePassword(email: string, newPass: string, securityQuestion?: string, securityAnswer?: string) {
-    const user = await this.employeeModel.findOne({ email }).exec();
+    const user = await this.employeeModel.findOne({ email: new RegExp('^' + email + '$', 'i') }).exec();
     if (!user) {
       throw new BadRequestException('Employee not found');
     }
@@ -87,14 +87,25 @@ export class AuthService {
   }
 
   async getSecurityQuestion(email: string) {
-    const user = await this.employeeModel.findOne({ email }).exec();
+    const user = await this.employeeModel.findOne({ email: new RegExp('^' + email + '$', 'i') }).exec();
     if (!user) throw new BadRequestException('User not found');
     if (!user.security_question) throw new BadRequestException('No security question set for this user');
     return { question: user.security_question };
   }
 
+  async verifySecurityAnswer(email: string, answer: string) {
+    const user = await this.employeeModel.findOne({ email: new RegExp('^' + email + '$', 'i') }).exec();
+    if (!user) throw new BadRequestException('User not found');
+    if (!user.security_answer) throw new BadRequestException('No security question set');
+    
+    const isMatch = await bcrypt.compare(answer.toLowerCase().trim(), user.security_answer);
+    if (!isMatch) throw new BadRequestException('Incorrect security answer');
+    
+    return { success: true };
+  }
+
   async resetWithSecurityAnswer(email: string, answer: string, newPass: string) {
-    const user = await this.employeeModel.findOne({ email }).exec();
+    const user = await this.employeeModel.findOne({ email: new RegExp('^' + email + '$', 'i') }).exec();
     if (!user) throw new BadRequestException('User not found');
     if (!user.security_answer) throw new BadRequestException('No security question set');
     
@@ -116,10 +127,10 @@ export class AuthService {
   }
 
   async createPasswordResetRequest(email: string) {
-    const user = await this.employeeModel.findOne({ email }).exec();
+    const user = await this.employeeModel.findOne({ email: new RegExp('^' + email + '$', 'i') }).exec();
     if (!user) throw new BadRequestException('User not found');
     
-    const existingReq = await this.pwdResetReqModel.findOne({ email, status: 'pending' }).exec();
+    const existingReq = await this.pwdResetReqModel.findOne({ email: new RegExp('^' + email + '$', 'i'), status: 'pending' }).exec();
     if (existingReq) throw new BadRequestException('A password reset request is already pending for this user.');
 
     const req = new this.pwdResetReqModel({ email, name: user.name });
@@ -143,11 +154,16 @@ export class AuthService {
     }
 
     // Approve logic
-    const user = await this.employeeModel.findOne({ email: req.email }).exec();
+    const user = await this.employeeModel.findOne({ email: new RegExp('^' + req.email + '$', 'i') }).exec();
     if (!user) throw new BadRequestException('User not found');
 
-    const tempPassword = 'Temp' + Math.floor(1000 + Math.random() * 9000) + '!';
-    user.password = await bcrypt.hash(tempPassword, 10);
+    const chars = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNOPQRSTUVWXYZ23456789';
+    let tempPassword = '';
+    for (let i = 0; i < 8; i++) {
+      tempPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    
+    user.password = tempPassword;
     user.needs_password_change = true;
     await user.save();
 
@@ -155,7 +171,7 @@ export class AuthService {
     req.generated_password = tempPassword;
     await req.save();
 
-    return { success: true, status: 'approved', generated_password: tempPassword };
+    return { success: true, status: 'approved', generated_password: tempPassword, name: user.name };
   }
 
   async logout(sessionId: string) {

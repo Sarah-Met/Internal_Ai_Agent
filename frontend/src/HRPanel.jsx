@@ -825,9 +825,10 @@ export default function HRPanel({ view, staff = [], onStaffLoaded }) {
       if (res.ok) {
         const data = await res.json();
         if (data.status === 'approved') {
-          setPasswordReminder({ name: 'Employee', password: data.generated_password });
+          setPasswordReminder({ name: data.name, password: data.generated_password, type: 'reset' });
         }
         fetchResetRequests();
+        fetchStaff();
       }
     } catch (err) {
       console.error(err);
@@ -1262,7 +1263,7 @@ export default function HRPanel({ view, staff = [], onStaffLoaded }) {
                   Action Required — Send Temporary Password
                 </p>
                 <p style={{ fontSize: '0.78rem', color: '#78350F', margin: '4px 0 8px', lineHeight: 1.5 }}>
-                  <strong>{passwordReminder.name}</strong> has been added. Please copy and send the temporary password below to them directly. They will be prompted to change it on first login.
+                  <strong>{passwordReminder.name}</strong> {passwordReminder.type === 'reset' ? 'has had their password reset.' : 'has been added.'} Please copy and send the temporary password below to them directly. They will be prompted to change it on their next login.
                 </p>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                   <code style={{

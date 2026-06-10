@@ -31,6 +31,12 @@ export class AuthController {
   }
 
   @HttpCode(HttpStatus.OK)
+  @Post('verify-security-answer')
+  async verifySecurityAnswer(@Body() body: { email: string; answer: string }) {
+    return this.authService.verifySecurityAnswer(body.email, body.answer);
+  }
+
+  @HttpCode(HttpStatus.OK)
   @Post('reset-with-security-answer')
   async resetWithSecurityAnswer(@Body() body: { email: string; answer: string; new_pass: string }) {
     return this.authService.resetWithSecurityAnswer(body.email, body.answer, body.new_pass);

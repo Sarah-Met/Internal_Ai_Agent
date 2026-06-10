@@ -100,7 +100,8 @@ export default function Login({ onLoginSuccess }) {
   const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(newPassword);
   const passwordsMatch = newPassword === confirmPassword && newPassword !== '';
 
-  const isResetValid = hasMinLength && hasLetter && hasNumber && hasSpecial && passwordsMatch && securityAnswer.trim() !== '';
+  const isPasswordValid = hasMinLength && hasLetter && hasNumber && hasSpecial && passwordsMatch;
+  const isResetValid = isPasswordValid && securityAnswer.trim() !== '';
 
   // --- Forgot Password Logic ---
   const handleForgotEmailSubmit = async (e) => {
@@ -130,9 +131,26 @@ export default function Login({ onLoginSuccess }) {
   const handleForgotAnswerSubmit = async (e) => {
     e.preventDefault();
     if (forgotStep === 2) {
-      setForgotStep(3);
+      setError('');
+      setLoading(true);
+      try {
+        const response = await fetch('http://localhost:3000/auth/verify-security-answer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: forgotEmail, answer: forgotAnswer }),
+        });
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.message || 'Incorrect security answer');
+        }
+        setForgotStep(3);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
     } else if (forgotStep === 3) {
-      if (!isResetValid) return;
+      if (!isPasswordValid) return;
       setError('');
       setLoading(true);
       try {
@@ -400,10 +418,30 @@ export default function Login({ onLoginSuccess }) {
                       required
                     />
                   </div>
+
+                  {/* Password strength checker UI */}
+                  <div style={{ width: '100%', fontSize: '0.8rem', marginTop: '4px', marginBottom: '16px', color: 'var(--navy-mid)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <p style={{ fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--navy)', marginBottom: '2px' }}>Requirements:</p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: hasMinLength ? 'var(--teal)' : 'var(--red)', fontWeight: 500 }}>
+                      <span>{hasMinLength ? '✓' : '✗'}</span> Minimum 8 characters
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: hasLetter ? 'var(--teal)' : 'var(--red)', fontWeight: 500 }}>
+                      <span>{hasLetter ? '✓' : '✗'}</span> Contains letters (a-z, A-Z)
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: hasNumber ? 'var(--teal)' : 'var(--red)', fontWeight: 500 }}>
+                      <span>{hasNumber ? '✓' : '✗'}</span> Contains numbers (0-9)
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: hasSpecial ? 'var(--teal)' : 'var(--red)', fontWeight: 500 }}>
+                      <span>{hasSpecial ? '✓' : '✗'}</span> Contains special character (!@#$ etc.)
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: passwordsMatch ? 'var(--teal)' : 'var(--red)', fontWeight: 500 }}>
+                      <span>{passwordsMatch ? '✓' : '✗'}</span> Passwords match
+                    </div>
+                  </div>
                 </>
               )}
 
-              <button type="submit" className="btn btn-primary login-btn" disabled={loading || (forgotStep === 3 && !isResetValid)} style={{ marginBottom: '8px' }}>
+              <button type="submit" className="btn btn-primary login-btn" disabled={loading || (forgotStep === 3 && !isPasswordValid)} style={{ marginBottom: '8px' }}>
                 {forgotStep === 2 ? 'Verify Answer' : 'Reset Password'}
               </button>
               

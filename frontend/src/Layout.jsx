@@ -148,7 +148,18 @@ export default function Layout({ user, onLogout }) {
     <>
       {/* ── Sidebar ── */}
       <div className="sidebar">
-        <div className="sidebar-logo">
+        <div 
+          className="sidebar-logo" 
+          onClick={() => {
+            if (allowedIds.includes('dashboard')) {
+              setActive('dashboard');
+            } else {
+              setActive('chat');
+            }
+          }}
+          style={{ cursor: 'pointer' }}
+          title="Go to Home"
+        >
           <img src="/images/ZUNO_white.png" alt="ZUNO" style={{ width: 42, height: 42, borderRadius: 8, objectFit: 'contain' }} />
           <span className="logo-text">ZUNO</span>
         </div>
