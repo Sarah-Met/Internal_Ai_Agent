@@ -23,6 +23,11 @@ export class Employee extends Document {
 
   @Prop({ required: true, default: true })
   needs_password_change: boolean;
+  @Prop()
+  security_question?: string;
+
+  @Prop()
+  security_answer?: string;
 }
 
 export const EmployeeSchema = SchemaFactory.createForClass(Employee);
@@ -66,3 +71,19 @@ export class ReportLog extends Document {
 
 export const ReportLogSchema = SchemaFactory.createForClass(ReportLog);
 
+@Schema({ collection: 'password_reset_requests', timestamps: true })
+export class PasswordResetRequest extends Document {
+  @Prop({ required: true })
+  email: string;
+
+  @Prop({ required: true })
+  name: string;
+
+  @Prop({ required: true, default: 'pending' })
+  status: string; // 'pending', 'approved', 'denied'
+
+  @Prop()
+  generated_password?: string;
+}
+
+export const PasswordResetRequestSchema = SchemaFactory.createForClass(PasswordResetRequest);

@@ -1,42 +1,42 @@
 import React, { useState, useEffect } from 'react';
 
+const parseCustomDate = (dateStr) => {
+  if (!dateStr) return null;
+  try {
+    if (dateStr.includes('T')) {
+      const d = new Date(dateStr);
+      if (!isNaN(d.getTime())) return d;
+    }
+    const match = dateStr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+    if (match) {
+      const day = parseInt(match[1], 10);
+      const month = parseInt(match[2], 10) - 1;
+      let year = parseInt(match[3], 10);
+      if (year < 100) year += 2000;
+      
+      let hour = 12, min = 0, sec = 0;
+      const timeMatch = dateStr.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+      if (timeMatch) {
+        hour = parseInt(timeMatch[1], 10);
+        min = parseInt(timeMatch[2], 10);
+        if (timeMatch[3]) sec = parseInt(timeMatch[3], 10);
+      }
+      return new Date(year, month, day, hour, min, sec);
+    }
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) return d;
+  } catch (e) {}
+  return null;
+};
+
 // Helper function to format the FAQ updated date as: "9th Jun 26, 7:20pm"
 const formatFAQDate = (dateStr) => {
   if (!dateStr) return 'Unknown';
   try {
-    let date = new Date(dateStr);
-    
-    // Parse custom format like "Sep 2, 26   6:13:59 PM" or "14/4/26 11:39:12"
-    if (isNaN(date.getTime())) {
-      const cleanStr = dateStr.replace(/\s+/g, ' ');
-      date = new Date(cleanStr);
-    }
-    
-    // Fallback parser for DD/MM/YY formats
-    if (isNaN(date.getTime())) {
-      const dmyMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-      if (dmyMatch) {
-        const day = parseInt(dmyMatch[1]);
-        const month = parseInt(dmyMatch[2]) - 1;
-        let year = parseInt(dmyMatch[3]);
-        if (year < 100) year += 2000;
-        
-        let hour = 12, min = 0;
-        const timeMatch = dateStr.match(/(\d{1,2}):(\d{2})/);
-        if (timeMatch) {
-          hour = parseInt(timeMatch[1]);
-          min = parseInt(timeMatch[2]);
-        }
-        date = new Date(year, month, day, hour, min);
-      }
-    }
-
-    if (isNaN(date.getTime())) {
-      return dateStr;
-    }
+    const date = parseCustomDate(dateStr);
+    if (!date) return dateStr;
 
     const day = date.getDate();
-
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const monthName = months[date.getMonth()];
     const year = String(date.getFullYear()).slice(-2);
@@ -78,9 +78,11 @@ export default function FAQEditor() {
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
+  const [sortBy, setSortBy] = useState('time-desc');
 
   // Toast Notification state
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   const showToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
@@ -99,22 +101,8 @@ export default function FAQEditor() {
   const getFAQTimestamp = (faq) => {
     const dateStr = faq.data?.lastUpdated;
     if (!dateStr) return 0;
-    try {
-      let date = new Date(dateStr);
-      if (!isNaN(date.getTime())) {
-        return date.getTime();
-      }
-      // Fallback parser for DD/MM/YY or DD/MM/YYYY
-      const dmyMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-      if (dmyMatch) {
-        const day = parseInt(dmyMatch[1]);
-        const month = parseInt(dmyMatch[2]) - 1;
-        let year = parseInt(dmyMatch[3]);
-        if (year < 100) year += 2000;
-        return new Date(year, month, day).getTime();
-      }
-    } catch (e) {}
-    return 0;
+    const date = parseCustomDate(dateStr);
+    return date ? date.getTime() : 0;
   };
 
   const fetchFaqs = async () => {
@@ -144,7 +132,7 @@ export default function FAQEditor() {
     setEditingId(null); // Close any edit form
     setAddQuestion('');
     setAddAnswer('');
-    setAddCategory('');
+    setAddCategory('General');
     setAddTags('');
     setError(null);
   };
@@ -232,23 +220,24 @@ export default function FAQEditor() {
     }
   };
 
-  const handleDelete = async (id, questionText) => {
-    if (!window.confirm(`Are you sure you want to permanently delete the FAQ: "${questionText.substring(0, 40)}..."?`)) {
-      return;
-    }
-
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirm) return;
+    setSubmitting(true);
     try {
       const res = await fetch('http://localhost:3000/auth/faq/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({ id: deleteConfirm.id }),
       });
 
       if (!res.ok) throw new Error();
       showToast('Question deleted successfully!', 'success');
+      setDeleteConfirm(null);
       fetchFaqs();
     } catch {
       showToast('Failed to delete FAQ. Is the backend running?', 'error');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -321,10 +310,24 @@ export default function FAQEditor() {
             {categories.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
 
+          {/* Sort Dropdown */}
+          <select 
+            value={sortBy} 
+            onChange={e => setSortBy(e.target.value)} 
+            style={{ height: '32px', border: '1.5px solid #e2e8f0', borderRadius: '6px', padding: '0 8px', fontFamily: 'inherit', fontSize: '0.82rem', color: 'var(--navy)', background: 'white', cursor: 'pointer' }}
+          >
+            <option value="time-desc">Sort: Newer First</option>
+            <option value="time-asc">Sort: Older First</option>
+            <option value="id-asc">Sort: ID ↑</option>
+            <option value="id-desc">Sort: ID ↓</option>
+            <option value="question-asc">Sort: Question A–Z</option>
+            <option value="question-desc">Sort: Question Z–A</option>
+          </select>
+
           {/* Clear Filters */}
-          {(searchQuery || filterCategory !== 'all') && (
+          {(searchQuery || filterCategory !== 'all' || sortBy !== 'time-desc') && (
             <button 
-              onClick={() => { setSearchQuery(''); setFilterCategory('all'); }} 
+              onClick={() => { setSearchQuery(''); setFilterCategory('all'); setSortBy('time-desc'); }} 
               style={{ height: '32px', padding: '0 12px', border: '1.5px solid #e2e8f0', borderRadius: '6px', background: 'white', fontFamily: 'inherit', fontSize: '0.82rem', color: 'var(--red)', cursor: 'pointer', fontWeight: 600 }}
             >
               × Clear
@@ -361,19 +364,15 @@ export default function FAQEditor() {
                 <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'white', background: '#059794', padding: '5px 12px', borderRadius: '4px', textTransform: 'uppercase' }}>
                   NEW QUESTION
                 </span>
-                
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span style={{ fontSize: '0.9rem', color: 'var(--navy)', fontWeight: 600 }}>Category:</span>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. IT, HR, Finance"
+                  <select
                     value={addCategory}
                     onChange={e => setAddCategory(e.target.value)}
                     style={{
                       height: '34px', padding: '0 12px', border: '1.5px solid #cbd5e1', borderRadius: '6px',
                       fontSize: '0.9rem', fontFamily: 'inherit', color: 'var(--navy)', width: '160px', boxSizing: 'border-box',
-                      outline: 'none', background: 'white',
+                      outline: 'none', background: 'white', cursor: 'pointer',
                       transition: 'border-color 0.15s ease, box-shadow 0.15s ease'
                     }}
                     onFocus={(e) => {
@@ -384,7 +383,11 @@ export default function FAQEditor() {
                       e.target.style.borderColor = '#cbd5e1';
                       e.target.style.boxShadow = 'none';
                     }}
-                  />
+                  >
+                    {Array.from(new Set(["General", "IT", "HR", "Finance", ...categories])).map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -492,7 +495,24 @@ export default function FAQEditor() {
             <div style={{ textAlign: 'center', color: 'var(--grey)', padding: '32px 0' }}>No FAQs match your search filters.</div>
           ) : (
             [...filteredFaqs]
-              .sort((a, b) => getFAQTimestamp(b) - getFAQTimestamp(a))
+              .sort((a, b) => {
+                switch (sortBy) {
+                  case 'time-desc':
+                    return getFAQTimestamp(b) - getFAQTimestamp(a);
+                  case 'time-asc':
+                    return getFAQTimestamp(a) - getFAQTimestamp(b);
+                  case 'id-asc':
+                    return (parseInt(a.data?.id) || 0) - (parseInt(b.data?.id) || 0);
+                  case 'id-desc':
+                    return (parseInt(b.data?.id) || 0) - (parseInt(a.data?.id) || 0);
+                  case 'question-asc':
+                    return (a.data?.question || '').localeCompare(b.data?.question || '');
+                  case 'question-desc':
+                    return (b.data?.question || '').localeCompare(a.data?.question || '');
+                  default:
+                    return 0;
+                }
+              })
               .map((faq) => {
                 const qText = faq.data?.question || faq.text?.split('\n\n')[0] || 'Untitled Question';
               const aText = faq.data?.answer || faq.text?.split('\n\n')[1] || faq.text || '';
@@ -738,7 +758,7 @@ export default function FAQEditor() {
                       <button 
                         className="btn btn-primary" 
                         style={{ padding: '0 16px', fontSize: '0.85rem', fontWeight: '600', height: '35px', background: '#ef4444', border: 'none', display: 'flex', alignItems: 'center', gap: '6px' }} 
-                        onClick={() => handleDelete(faq._id, qText)}
+                        onClick={() => setDeleteConfirm({ id: faq._id, questionText: qText })}
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                           <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>
@@ -753,6 +773,57 @@ export default function FAQEditor() {
           )}
         </div>
       </div>
+
+      {/* Delete Confirmation Modal Overlay */}
+      {deleteConfirm && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setDeleteConfirm(null)}>
+          <div className="modal" style={{
+            background: '#fffbfb',
+            border: '2px dashed var(--red)',
+            borderRadius: '8px',
+            padding: '24px',
+            boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)',
+            width: '420px',
+            maxWidth: '90vw',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'white', background: 'var(--red)', padding: '5px 12px', borderRadius: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Delete FAQ
+              </span>
+            </div>
+            <p className="modal-sub" style={{ color: '#000', fontSize: '0.95rem', marginBottom: '20px', marginTop: '0', lineHeight: '1.5' }}>
+              Are you sure you want to permanently delete the FAQ:<br />
+              <strong style={{ color: 'var(--red)' }}>"{deleteConfirm.questionText}"</strong>?<br />
+              This action cannot be undone.
+            </p>
+            <div className="modal-btns">
+              <button className="btn btn-ghost" onClick={() => setDeleteConfirm(null)} style={{
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                padding: '10px 16px',
+                borderRadius: '6px',
+              }}>Cancel</button>
+              <button 
+                className="btn btn-primary" 
+                style={{ 
+                  background: 'var(--red)',
+                  borderColor: 'var(--red)',
+                  color: 'white',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  padding: '10px 16px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                }} 
+                onClick={handleConfirmDelete} 
+                disabled={submitting}
+              >
+                {submitting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast Notification pop up (bottom-right, non-blocking) */}
       {toast.show && (

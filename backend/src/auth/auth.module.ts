@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import { Employee, EmployeeSchema, SessionLog, SessionLogSchema, AIQuery, AIQuerySchema, ReportLog, ReportLogSchema } from './employee.schema';
+import { Employee, EmployeeSchema, SessionLog, SessionLogSchema, AIQuery, AIQuerySchema, ReportLog, ReportLogSchema, PasswordResetRequest, PasswordResetRequestSchema } from './employee.schema';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 
@@ -10,7 +10,8 @@ import { AuthController } from './auth.controller';
       { name: Employee.name, schema: EmployeeSchema },
       { name: SessionLog.name, schema: SessionLogSchema },
       { name: AIQuery.name, schema: AIQuerySchema },
-      { name: ReportLog.name, schema: ReportLogSchema }
+      { name: ReportLog.name, schema: ReportLogSchema },
+      { name: PasswordResetRequest.name, schema: PasswordResetRequestSchema }
     ]),
   ],
   providers: [AuthService],

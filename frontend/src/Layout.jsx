@@ -154,8 +154,30 @@ export default function Layout({ user, onLogout }) {
         </div>
 
         <nav className="sidebar-nav">
+          {allowedIds.includes('chat') && (
+            <div style={{ marginBottom: '20px', padding: '0 4px' }}>
+              <button
+                onClick={() => setActive('chat')}
+                className={`zuno-ai-btn ${active === 'chat' ? 'active' : ''}`}
+              >
+                <img 
+                  src="/images/ZUNO_white.png" 
+                  className="icon-white" 
+                  alt="ZUNO" 
+                />
+                <img 
+                  src="/images/ZUNO_red.png" 
+                  className="icon-red" 
+                  alt="ZUNO" 
+                />
+                <span>ZUNO AI</span>
+                <span className="ai-badge">AI</span>
+              </button>
+            </div>
+          )}
+
           <div className="sidebar-label">Main Menu</div>
-          {filteredNAV.map(item => (
+          {filteredNAV.filter(item => item.id !== 'chat').map(item => (
             <div
               key={item.id}
               className={`nav-item ${active === item.id ? 'active' : ''}`}

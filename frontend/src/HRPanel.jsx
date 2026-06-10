@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 
 const webhooks = {
   'gen-details':    'http://localhost:5678/webhook/gen-details',
-  'gen-attendance': 'http://localhost:5678/webhook/gen-attendance',
+  'gen-attendance': 'http://localhost:3000/auth/attendance-report',
   'email':          'http://localhost:5678/webhook/send-email',
   'announce':       'http://localhost:5678/webhook/broadcast',
   'add':            'http://localhost:5678/webhook/add-employee',
@@ -12,9 +12,14 @@ const webhooks = {
 };
 
 /* ─── Modal ─── */
-function Modal({ config, onClose, onSuccess, onOptimisticDelete, staffList = [] }) {
+function Modal({ config, onClose, onSuccess, onOptimisticDelete, staffList = [], showToast }) {
   const [fields, setFields] = useState({});
   const [loading, setLoading] = useState(false);
+  const [recipientMode, setRecipientMode] = useState('list');
+  const [staffSearch, setStaffSearch] = useState('');
+  const [selectedEmails, setSelectedEmails] = useState([]);
+  const [customRecipients, setCustomRecipients] = useState([]);
+  const [customEmailInput, setCustomEmailInput] = useState('');
 
   useEffect(() => {
     if (config && config.initialData) {
@@ -29,7 +34,23 @@ function Modal({ config, onClose, onSuccess, onOptimisticDelete, staffList = [] 
     } else {
       setFields({ f6: '4' });
     }
-  }, [config]);
+
+    if (config && config.type === 'email' && staffList.length > 0) {
+      setRecipientMode('list');
+      const staffWithEmail = staffList.filter(e => e.email);
+      if (staffWithEmail.length > 0) {
+        setFields(p => ({ ...p, f1: staffWithEmail[0].email || '' }));
+      }
+    }
+    if (config && config.type === 'announce') {
+      setRecipientMode('all');
+      setFields({});
+      setSelectedEmails([]);
+      setCustomRecipients([]);
+      setCustomEmailInput('');
+      setStaffSearch('');
+    }
+  }, [config, staffList]);
 
   if (!config) return null;
 
@@ -78,7 +99,11 @@ function Modal({ config, onClose, onSuccess, onOptimisticDelete, staffList = [] 
       };
       pollForDeletion();
     } catch {
-      alert('Error connecting to n8n workflow. Check that n8n is running.');
+      if (showToast) {
+        showToast('Error connecting to n8n workflow. Check that n8n is running.', 'error');
+      } else {
+        alert('Error connecting to n8n workflow. Check that n8n is running.');
+      }
     } finally {
       setLoading(false);
     }
@@ -87,14 +112,40 @@ function Modal({ config, onClose, onSuccess, onOptimisticDelete, staffList = [] 
   if (config.type === 'confirm-delete') {
     return (
       <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-        <div className="modal">
-          <p className="modal-title" style={{color: 'var(--red)'}}>{config.title}</p>
-          <p className="modal-sub" style={{ color: '#000', fontSize: '0.95rem' }}>
+        <div className="modal" style={{
+          background: '#fffbfb',
+          border: '2px dashed var(--red)',
+          borderRadius: '8px',
+          padding: '24px',
+          boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)',
+          width: '420px',
+          maxWidth: '90vw',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'white', background: 'var(--red)', padding: '5px 12px', borderRadius: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              {config.title}
+            </span>
+          </div>
+          <p className="modal-sub" style={{ color: '#000', fontSize: '0.95rem', marginBottom: '20px', marginTop: '0', lineHeight: '1.4' }}>
             Are you sure you want to permanently delete <strong style={{ color: 'var(--red)' }}>{config.empName}</strong>? This action cannot be undone.
           </p>
           <div className="modal-btns">
-            <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-            <button className="btn btn-primary" onClick={handleConfirmDelete} disabled={loading}>
+            <button className="btn btn-ghost" onClick={onClose} style={{
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              padding: '10px 16px',
+              borderRadius: '6px',
+            }}>Cancel</button>
+            <button className="btn btn-primary" onClick={handleConfirmDelete} disabled={loading} style={{
+              background: 'var(--red)',
+              borderColor: 'var(--red)',
+              color: 'white',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              padding: '10px 16px',
+              borderRadius: '6px',
+              cursor: 'pointer',
+            }}>
               {loading ? 'Deleting…' : 'Delete'}
             </button>
           </div>
@@ -108,9 +159,14 @@ function Modal({ config, onClose, onSuccess, onOptimisticDelete, staffList = [] 
     let payload = {};
     try {
       if (config.type === 'email') {
-        payload = { email: fields.f1, message: fields.f2 };
+        payload = { email: fields.f1, subject: fields.f3 || '', message: fields.f2 };
       } else if (config.type === 'announce') {
-        payload = { headline: fields.f1, details: fields.f2 };
+        payload = { 
+          headline: fields.f1, 
+          details: fields.f2, 
+          recipientMode, 
+          emails: recipientMode === 'list' ? selectedEmails : []
+        };
       } else if (config.type === 'delete') {
         payload = { employee_id: fields.f1 };
       } else if (config.type === 'add') {
@@ -141,11 +197,27 @@ function Modal({ config, onClose, onSuccess, onOptimisticDelete, staffList = [] 
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error();
-      alert('Operation completed successfully.');
+      const messages = {
+        email: 'Email sent successfully!',
+        announce: 'Announcement broadcasted successfully!',
+        delete: 'Employee deleted successfully!',
+        add: 'Employee record added successfully!',
+        update: 'Employee profile updated successfully!'
+      };
+      const successMsg = messages[config.type] || 'Operation completed successfully!';
+      if (showToast) {
+        showToast(successMsg, 'success');
+      } else {
+        alert(successMsg);
+      }
       if (onSuccess) onSuccess();
       onClose();
     } catch {
-      alert('Error connecting to n8n workflow. Check that n8n is running.');
+      if (showToast) {
+        showToast('Error connecting to n8n workflow. Check that n8n is running.', 'error');
+      } else {
+        alert('Error connecting to n8n workflow. Check that n8n is running.');
+      }
     } finally {
       setLoading(false);
     }
@@ -153,34 +225,104 @@ function Modal({ config, onClose, onSuccess, onOptimisticDelete, staffList = [] 
 
   const inp = (key, placeholder, type = 'text', disabled = false) => (
     <div className="modal-field" key={key}>
-      <label>{placeholder}</label>
-      <input type={type} placeholder={`Enter ${placeholder.toLowerCase()}…`} value={fields[key] || ''} onChange={e => setFields(p => ({ ...p, [key]: e.target.value }))} disabled={disabled} style={disabled ? { opacity: 0.6, cursor: 'not-allowed' } : {}} />
+      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--navy)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.3px' }}>{placeholder}</label>
+      <input 
+        type={type} 
+        placeholder={`Enter ${placeholder.toLowerCase()}…`} 
+        value={fields[key] || ''} 
+        onChange={e => setFields(p => ({ ...p, [key]: e.target.value }))} 
+        disabled={disabled} 
+        style={{
+          width: '100%', 
+          padding: '10px 14px',
+          border: '1.5px solid #cbd5e1',
+          borderRadius: '6px',
+          fontFamily: 'inherit',
+          fontSize: '0.875rem',
+          color: 'var(--navy)',
+          background: 'white',
+          outline: 'none',
+          transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+          boxSizing: 'border-box',
+          ...(disabled ? { opacity: 0.6, cursor: 'not-allowed', background: '#f1f5f9' } : {})
+        }}
+        onFocus={(e) => {
+          if (!disabled) {
+            e.target.style.borderColor = '#059794';
+            e.target.style.boxShadow = '0 0 0 3px rgba(5, 151, 148, 0.15)';
+          }
+        }}
+        onBlur={(e) => {
+          if (!disabled) {
+            e.target.style.borderColor = '#cbd5e1';
+            e.target.style.boxShadow = 'none';
+          }
+        }}
+      />
     </div>
   );
 
   const ta = (key, placeholder) => (
     <div className="modal-field" key={key}>
-      <label>{placeholder}</label>
-      <textarea rows={3} placeholder={`Enter ${placeholder.toLowerCase()}…`} value={fields[key] || ''} onChange={e => setFields(p => ({ ...p, [key]: e.target.value }))} />
+      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--navy)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.3px' }}>{placeholder}</label>
+      <textarea 
+        rows={3} 
+        placeholder={`Enter ${placeholder.toLowerCase()}…`} 
+        value={fields[key] || ''} 
+        onChange={e => setFields(p => ({ ...p, [key]: e.target.value }))} 
+        style={{
+          width: '100%', 
+          padding: '10px 14px',
+          border: '1.5px solid #cbd5e1',
+          borderRadius: '6px',
+          fontFamily: 'inherit',
+          fontSize: '0.875rem',
+          color: 'var(--navy)',
+          background: 'white',
+          outline: 'none',
+          transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+          boxSizing: 'border-box',
+          resize: 'vertical'
+        }}
+        onFocus={(e) => {
+          e.target.style.borderColor = '#059794';
+          e.target.style.boxShadow = '0 0 0 3px rgba(5, 151, 148, 0.15)';
+        }}
+        onBlur={(e) => {
+          e.target.style.borderColor = '#cbd5e1';
+          e.target.style.boxShadow = 'none';
+        }}
+      />
     </div>
   );
 
   const roleSelect = (key) => (
     <div className="modal-field" key={key}>
-      <label>Role</label>
+      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--navy)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Role</label>
       <select 
         value={fields[key] || '4'} 
         onChange={e => setFields(p => ({ ...p, [key]: e.target.value }))}
         style={{
           width: '100%',
           padding: '10px 14px',
-          border: '1.5px solid var(--grey-light)',
-          borderRadius: 'var(--radius-sm)',
+          border: '1.5px solid #cbd5e1',
+          borderRadius: '6px',
           fontFamily: 'inherit',
           fontSize: '0.875rem',
           color: 'var(--navy)',
-          background: 'var(--off-white)',
-          outline: 'none'
+          background: 'white',
+          outline: 'none',
+          transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+          boxSizing: 'border-box',
+          cursor: 'pointer'
+        }}
+        onFocus={(e) => {
+          e.target.style.borderColor = '#059794';
+          e.target.style.boxShadow = '0 0 0 3px rgba(5, 151, 148, 0.15)';
+        }}
+        onBlur={(e) => {
+          e.target.style.borderColor = '#cbd5e1';
+          e.target.style.boxShadow = 'none';
         }}
       >
         <option value="1">Admin (Role 1)</option>
@@ -192,8 +334,339 @@ function Modal({ config, onClose, onSuccess, onOptimisticDelete, staffList = [] 
   );
 
   let body;
-  if (config.type === 'email')    body = <>{inp('f1','Recipient Email','email')}{ta('f2','Message')}</>;
-  else if (config.type === 'announce') body = <>{inp('f1','Headline')}{ta('f2','Details')}</>;
+  if (config.type === 'email') {
+    body = (
+      <>
+        <div className="modal-field">
+          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--navy)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Recipient Mode</label>
+          <div style={{
+            display: 'flex',
+            background: 'rgba(5, 151, 148, 0.04)',
+            padding: '4px',
+            borderRadius: '8px',
+            border: '1.5px solid rgba(5, 151, 148, 0.18)',
+            marginTop: '6px',
+            marginBottom: '16px',
+            boxSizing: 'border-box'
+          }}>
+            <button
+              type="button"
+              style={{
+                flex: 1,
+                background: recipientMode === 'list' ? '#ffffff' : 'transparent',
+                color: recipientMode === 'list' ? '#059794' : '#64748b',
+                border: recipientMode === 'list' ? '1px solid rgba(5, 151, 148, 0.15)' : 'none',
+                boxShadow: recipientMode === 'list' ? '0 1px 3px 0 rgba(0,0,0,0.06)' : 'none',
+                borderRadius: '6px',
+                padding: '8px 12px',
+                fontSize: '0.82rem',
+                fontWeight: 600,
+                fontFamily: 'inherit',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+              onClick={() => {
+                setRecipientMode('list');
+                const staffWithEmail = staffList.filter(e => e.email);
+                if (staffWithEmail.length > 0) {
+                  setFields(p => ({ ...p, f1: staffWithEmail[0].email || '' }));
+                } else {
+                  setFields(p => ({ ...p, f1: '' }));
+                }
+              }}
+            >
+              Select from Staff
+            </button>
+            <button
+              type="button"
+              style={{
+                flex: 1,
+                background: recipientMode === 'custom' ? '#ffffff' : 'transparent',
+                color: recipientMode === 'custom' ? '#059794' : '#64748b',
+                border: recipientMode === 'custom' ? '1px solid rgba(5, 151, 148, 0.15)' : 'none',
+                boxShadow: recipientMode === 'custom' ? '0 1px 3px 0 rgba(0,0,0,0.06)' : 'none',
+                borderRadius: '6px',
+                padding: '8px 12px',
+                fontSize: '0.82rem',
+                fontWeight: 600,
+                fontFamily: 'inherit',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+              onClick={() => {
+                setRecipientMode('custom');
+                setFields(p => ({ ...p, f1: '' }));
+              }}
+            >
+              Enter Custom Email
+            </button>
+          </div>
+        </div>
+
+        {recipientMode === 'list' ? (
+          <div className="modal-field">
+            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--navy)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Select Staff Member</label>
+            <select
+              value={fields.f1 || ''}
+              onChange={e => setFields(p => ({ ...p, f1: e.target.value }))}
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                border: '1.5px solid #cbd5e1',
+                borderRadius: '6px',
+                fontFamily: 'inherit',
+                fontSize: '0.875rem',
+                color: 'var(--navy)',
+                background: 'white',
+                outline: 'none',
+                boxSizing: 'border-box',
+                cursor: 'pointer',
+                transition: 'border-color 0.15s ease, box-shadow 0.15s ease'
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = '#059794';
+                e.target.style.boxShadow = '0 0 0 3px rgba(5, 151, 148, 0.15)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = '#cbd5e1';
+                e.target.style.boxShadow = 'none';
+              }}
+            >
+              {staffList.filter(e => e.email).map(emp => (
+                <option key={emp.employee_id} value={emp.email}>
+                  {emp.name} ({emp.email}) - {emp.department || 'No Dept'}
+                </option>
+              ))}
+              {staffList.filter(e => e.email).length === 0 && (
+                <option value="">No employees with email found</option>
+              )}
+            </select>
+          </div>
+        ) : (
+          inp('f1', 'Recipient Email', 'email')
+        )}
+
+        {inp('f3', 'Subject')}
+        {ta('f2', 'Message')}
+      </>
+    );
+  }
+  else if (config.type === 'announce') {
+    // Combine staff and custom recipients into a single array for display
+    const combinedRecipients = [
+      ...staffList.filter(e => e.email).map(emp => ({
+        email: emp.email,
+        label: `${emp.name} (${emp.email})`,
+        isCustom: false
+      })),
+      ...customRecipients.map(email => ({
+        email: email,
+        label: `${email} (Custom)`,
+        isCustom: true
+      }))
+    ];
+
+    const filteredRecipients = combinedRecipients.filter(item => {
+      const term = staffSearch.toLowerCase();
+      return item.label.toLowerCase().includes(term);
+    });
+
+    body = (
+      <>
+        <div className="modal-field">
+          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--navy)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Recipient Mode</label>
+          <div style={{
+            display: 'flex',
+            background: 'rgba(5, 151, 148, 0.04)',
+            padding: '4px',
+            borderRadius: '8px',
+            border: '1.5px solid rgba(5, 151, 148, 0.18)',
+            marginTop: '6px',
+            marginBottom: '16px',
+            boxSizing: 'border-box'
+          }}>
+            <button
+              type="button"
+              style={{
+                flex: 1,
+                background: recipientMode === 'all' ? '#ffffff' : 'transparent',
+                color: recipientMode === 'all' ? '#059794' : '#64748b',
+                border: recipientMode === 'all' ? '1px solid rgba(5, 151, 148, 0.15)' : 'none',
+                boxShadow: recipientMode === 'all' ? '0 1px 3px 0 rgba(0,0,0,0.06)' : 'none',
+                borderRadius: '6px',
+                padding: '8px 12px',
+                fontSize: '0.82rem',
+                fontWeight: 600,
+                fontFamily: 'inherit',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+              onClick={() => setRecipientMode('all')}
+            >
+              All Staff
+            </button>
+            <button
+              type="button"
+              style={{
+                flex: 1,
+                background: recipientMode === 'list' ? '#ffffff' : 'transparent',
+                color: recipientMode === 'list' ? '#059794' : '#64748b',
+                border: recipientMode === 'list' ? '1px solid rgba(5, 151, 148, 0.15)' : 'none',
+                boxShadow: recipientMode === 'list' ? '0 1px 3px 0 rgba(0,0,0,0.06)' : 'none',
+                borderRadius: '6px',
+                padding: '8px 12px',
+                fontSize: '0.82rem',
+                fontWeight: 600,
+                fontFamily: 'inherit',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+              onClick={() => setRecipientMode('list')}
+            >
+              Select Recipients
+            </button>
+          </div>
+        </div>
+
+        {recipientMode === 'list' && (
+          <div className="modal-field">
+            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--navy)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Select Recipients</label>
+            <input 
+              type="text" 
+              placeholder="Search employees or custom emails..."
+              value={staffSearch}
+              onChange={e => setStaffSearch(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                border: '1.5px solid #cbd5e1',
+                borderRadius: '6px 6px 0 0',
+                borderBottom: 'none',
+                fontFamily: 'inherit',
+                fontSize: '0.85rem',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
+            />
+            <div style={{
+              border: '1.5px solid #cbd5e1',
+              borderRadius: '0 0 6px 6px',
+              maxHeight: '150px',
+              overflowY: 'auto',
+              background: 'white',
+              padding: '8px 12px',
+              boxSizing: 'border-box',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px'
+            }}>
+              {filteredRecipients.map(item => {
+                const isChecked = selectedEmails.includes(item.email);
+                return (
+                  <label key={item.email} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.825rem', color: 'var(--navy)', textTransform: 'none', fontWeight: 'normal' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={isChecked}
+                      onChange={() => {
+                        if (isChecked) {
+                          setSelectedEmails(selectedEmails.filter(email => email !== item.email));
+                          if (item.isCustom) {
+                            setCustomRecipients(customRecipients.filter(email => email !== item.email));
+                          }
+                        } else {
+                          setSelectedEmails([...selectedEmails, item.email]);
+                        }
+                      }}
+                      style={{
+                        width: '16px',
+                        height: '16px',
+                        margin: 0,
+                        cursor: 'pointer',
+                        flexShrink: 0
+                      }}
+                    />
+                    <span>{item.label}</span>
+                  </label>
+                );
+              })}
+              {filteredRecipients.length === 0 && (
+                <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--grey)', textAlign: 'center', padding: '12px 0' }}>No recipients match</p>
+              )}
+            </div>
+
+            {/* + Add Custom Email Input Block */}
+            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+              <input 
+                type="text" 
+                placeholder="Enter custom email..."
+                value={customEmailInput}
+                onChange={e => setCustomEmailInput(e.target.value)}
+                style={{
+                  flex: 1,
+                  padding: '8px 12px',
+                  border: '1.5px solid #cbd5e1',
+                  borderRadius: '6px',
+                  fontFamily: 'inherit',
+                  fontSize: '0.85rem',
+                  outline: 'none',
+                  boxSizing: 'border-box'
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const email = customEmailInput.trim();
+                    if (email && !selectedEmails.includes(email)) {
+                      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                        setSelectedEmails(prev => [...prev, email]);
+                        setCustomRecipients(prev => [...prev, email]);
+                        setCustomEmailInput('');
+                      } else {
+                        alert('Please enter a valid email address.');
+                      }
+                    }
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const email = customEmailInput.trim();
+                  if (email && !selectedEmails.includes(email)) {
+                    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                      setSelectedEmails([...selectedEmails, email]);
+                      setCustomRecipients([...customRecipients, email]);
+                      setCustomEmailInput('');
+                    } else {
+                      alert('Please enter a valid email address.');
+                    }
+                  }
+                }}
+                style={{
+                  background: '#059794',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '0 16px',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                + Add
+              </button>
+            </div>
+            
+            <div style={{ marginTop: '6px', fontSize: '0.78rem', color: '#059794', fontWeight: 600 }}>
+              {selectedEmails.length} recipient(s) selected
+            </div>
+          </div>
+        )}
+
+        {inp('f1', 'Headline')}
+        {ta('f2', 'Details')}
+      </>
+    );
+  }
   else if (config.type === 'delete')   body = <><p className="text-sm text-grey mb-4">This action permanently removes the employee record.</p>{inp('f1','Employee ID')}</>;
   else if (config.type === 'add')      body = <>{inp('f2','Full Name')}{inp('f3','Department')}{inp('f4','Email','email')}{inp('f5','Password','password')}{roleSelect('f6')}</>;
   else if (config.type === 'update')   body = <>{inp('f1','Employee ID', 'text', true)}{inp('f2','Full Name')}{inp('f3','Department')}{inp('f4','Email','email')}{inp('f5','Password','password')}{roleSelect('f6')}</>;
@@ -201,13 +674,45 @@ function Modal({ config, onClose, onSuccess, onOptimisticDelete, staffList = [] 
 
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
-        <p className="modal-title">{config.title}</p>
-        <p className="modal-sub">Fill in the fields and click Submit to trigger the automation workflow.</p>
+      <div className="modal" style={{
+        background: '#f8fafc',
+        border: '2px dashed #059794',
+        borderRadius: '8px',
+        padding: '24px',
+        boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)',
+        width: '420px',
+        maxWidth: '90vw',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+          <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'white', background: '#059794', padding: '5px 12px', borderRadius: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            {config.title}
+          </span>
+        </div>
+        <p className="modal-sub" style={{ color: 'var(--grey)', fontSize: '0.8rem', marginBottom: '20px', marginTop: '0' }}>
+          Fill in the fields and click Submit to trigger the automation workflow.
+        </p>
         {body}
-        <div className="modal-btns">
-          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={handleSubmit} disabled={loading}>
+        <div className="modal-btns" style={{ marginTop: '24px' }}>
+          <button className="btn btn-ghost" onClick={onClose} style={{
+            fontSize: '0.85rem',
+            fontWeight: 600,
+            padding: '10px 16px',
+            borderRadius: '6px',
+          }}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleSubmit} disabled={loading} style={{
+            background: '#059794',
+            borderColor: '#059794',
+            color: 'white',
+            fontSize: '0.85rem',
+            fontWeight: 600,
+            padding: '10px 16px',
+            borderRadius: '6px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '6px',
+            cursor: 'pointer',
+          }}>
             {loading ? 'Running…' : 'Submit →'}
           </button>
         </div>
@@ -254,6 +759,20 @@ const MODAL_TITLES = {
 export default function HRPanel({ view, staff = [], onStaffLoaded }) {
   const [modal, setModal] = useState(null);
   const [staffLoading, setStaffLoading] = useState(false);
+
+  // Toast Notification state
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+  const showToast = (message, type = 'success') => {
+    setToast({ show: true, message, type });
+  };
+  useEffect(() => {
+    if (toast.show) {
+      const timer = setTimeout(() => {
+        setToast({ show: false, message: '', type: 'success' });
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast.show]);
   const [staffError, setStaffError] = useState(null);
   const [dlLoading, setDlLoading] = useState(null);
   const [editingRowId, setEditingRowId] = useState(null);
@@ -265,6 +784,9 @@ export default function HRPanel({ view, staff = [], onStaffLoaded }) {
     aiQueriesToday: null,
     reportsGenerated: null
   });
+
+  const [resetRequests, setResetRequests] = useState([]);
+  const [resetReqLoading, setResetReqLoading] = useState(false);
 
   const fetchMetrics = async () => {
     try {
@@ -278,10 +800,45 @@ export default function HRPanel({ view, staff = [], onStaffLoaded }) {
     }
   };
 
+  const fetchResetRequests = async () => {
+    setResetReqLoading(true);
+    try {
+      const res = await fetch('http://localhost:3000/auth/reset-requests');
+      if (res.ok) {
+        const data = await res.json();
+        setResetRequests(data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setResetReqLoading(false);
+    }
+  };
+
+  const handleResolveReset = async (id, action) => {
+    try {
+      const res = await fetch('http://localhost:3000/auth/resolve-reset-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === 'approved') {
+          setPasswordReminder({ name: 'Employee', password: data.generated_password });
+        }
+        fetchResetRequests();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
     if (view === 'dashboard') {
       fetchMetrics();
     }
+    fetchResetRequests();
   }, [view, staff.length]);
 
   const [isAddingInline, setIsAddingInline] = useState(false);
@@ -477,6 +1034,7 @@ export default function HRPanel({ view, staff = [], onStaffLoaded }) {
     } finally {
       setStaffLoading(false);
     }
+    fetchResetRequests();
   };
 
   const downloadReport = async (type, filename) => {
@@ -568,6 +1126,40 @@ export default function HRPanel({ view, staff = [], onStaffLoaded }) {
     const clearFilters = () => { setSearchQuery(''); setFilterRole('all'); setFilterDept('all'); setFilterPwChanged('all'); };
     return (
       <>
+        {resetRequests && resetRequests.filter(r => r.status === 'pending').length > 0 && (
+          <div className="table-wrap" style={{ marginBottom: '24px', border: '2px solid rgba(16, 185, 129, 0.3)', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.1)' }}>
+            <div className="table-header" style={{ background: 'rgba(16, 185, 129, 0.05)', color: 'var(--teal)' }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--teal)' }}></span>
+                Pending Password Resets
+              </h3>
+            </div>
+            <table className="staff-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Requested At</th>
+                  <th style={{ textAlign: 'right' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resetRequests.filter(r => r.status === 'pending').map(req => (
+                  <tr key={req._id}>
+                    <td style={{ fontWeight: 600 }}>{req.name}</td>
+                    <td>{req.email}</td>
+                    <td>{formatTime(req.createdAt)}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <button className="btn btn-ghost" onClick={() => handleResolveReset(req._id, 'approve')} style={{ color: '#059669', border: '1px solid #10B981', marginRight: '8px', padding: '4px 12px', fontSize: '0.8rem' }}>Approve</button>
+                      <button className="btn btn-ghost" onClick={() => handleResolveReset(req._id, 'deny')} style={{ color: '#E11D48', border: '1px solid rgba(225, 29, 72, 0.4)', padding: '4px 12px', fontSize: '0.8rem' }}>Deny</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         <div className="table-wrap">
           <div className="table-header">
             <h3>Employee Records</h3>
@@ -930,7 +1522,7 @@ export default function HRPanel({ view, staff = [], onStaffLoaded }) {
           </table>
         </div>
 
-        <Modal config={modal} onClose={() => setModal(null)} onSuccess={fetchStaff} onOptimisticDelete={handleOptimisticDelete} staffList={staff} />
+        <Modal config={modal} onClose={() => setModal(null)} onSuccess={fetchStaff} onOptimisticDelete={handleOptimisticDelete} staffList={staff} showToast={showToast} />
       </>
     );
   }
@@ -968,7 +1560,40 @@ export default function HRPanel({ view, staff = [], onStaffLoaded }) {
         ))}
       </div>
 
-      <Modal config={modal} onClose={() => setModal(null)} onSuccess={fetchStaff} onOptimisticDelete={handleOptimisticDelete} staffList={staff} />
+      <Modal config={modal} onClose={() => setModal(null)} onSuccess={fetchStaff} onOptimisticDelete={handleOptimisticDelete} staffList={staff} showToast={showToast} />
+      
+      {/* Toast Notification pop up (bottom-right, non-blocking) */}
+      {toast.show && (
+        <>
+          <style>{`
+            @keyframes toastSlideIn {
+              from { transform: translateY(20px); opacity: 0; }
+              to { transform: translateY(0); opacity: 1; }
+            }
+          `}</style>
+          <div style={{
+            position: 'fixed',
+            bottom: '24px',
+            right: '24px',
+            background: toast.type === 'error' ? 'var(--red)' : '#059794',
+            color: 'white',
+            padding: '12px 20px',
+            borderRadius: '8px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '0.9rem',
+            fontWeight: 600,
+            animation: 'toastSlideIn 0.2s ease-out',
+            fontFamily: 'inherit',
+          }}>
+            <span>{toast.type === 'error' ? '⚠' : '✓'}</span>
+            <span>{toast.message}</span>
+          </div>
+        </>
+      )}
     </>
   );
 }

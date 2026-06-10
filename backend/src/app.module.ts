@@ -5,9 +5,17 @@ import { AppService } from './app.service';
 import { ChatModule } from './chat/chat.module';
 import { AuthModule } from './auth/auth.module';
 
+process.loadEnvFile();
+
+const mongoUri = process.env.MONGODB_URI;
+
+if (!mongoUri) {
+  throw new Error('MONGODB_URI is not set');
+}
+
 @Module({
   imports: [
-    MongooseModule.forRoot('mongodb+srv://sarahmet09:sarahmet09@faqgrad.7pwr4z7.mongodb.net/employees?appName=FAQgrad'),
+    MongooseModule.forRoot(mongoUri),
     ChatModule,
     AuthModule,
   ],
