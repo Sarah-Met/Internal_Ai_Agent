@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 
 const webhooks = {
-  'gen-details':    'http://localhost:5678/webhook/gen-details',
+  'gen-details':    'http://localhost:3000/auth/staff-report',
   'gen-attendance': 'http://localhost:3000/auth/attendance-report',
   'email':          'http://localhost:5678/webhook/send-email',
   'announce':       'http://localhost:5678/webhook/broadcast',

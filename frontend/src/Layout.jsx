@@ -2,13 +2,33 @@ import { useState, useCallback, useEffect } from 'react';
 import ChatInterface from './ChatInterface';
 import HRPanel from './HRPanel';
 import FAQEditor from './FAQEditor';
+import ITProjectManager from './ITProjectManager';
 
 const NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: '⊞' },
-  { id: 'staff', label: 'Staff List', icon: '◫' },
+  { 
+    id: 'staff', 
+    label: 'Staff List', 
+    icon: (
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style={{ display: 'block' }}>
+        <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+      </svg>
+    ) 
+  },
   { id: 'chat', label: 'AI Chatbot', icon: '◈' },
   { id: 'logs', label: 'Log History', icon: '≡' },
   { id: 'faq', label: 'FAQ Editor', icon: '✎' },
+  { 
+    id: 'it-projects', 
+    label: 'IT Projects', 
+    icon: (
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+        <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
+        <rect x="9" y="3" width="6" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="2" />
+        <circle cx="12" cy="5" r="0.5" fill="currentColor" />
+      </svg>
+    ) 
+  },
 ];
 
 const PAGE_META = {
@@ -17,6 +37,7 @@ const PAGE_META = {
   chat: { title: 'AI Assistant', sub: 'Powered by ZUNO · connected to FAQ knowledge base.' },
   logs: { title: 'Log History', sub: 'System activity and workflow execution logs.' },
   faq: { title: 'FAQ Editor', sub: 'View, edit, and update FAQ database entries.' },
+  'it-projects': { title: 'IT Project Management', sub: 'Track IT department tasks, employee workloads, and milestones.' },
 };
 
 export default function Layout({ user, onLogout }) {
@@ -25,8 +46,9 @@ export default function Layout({ user, onLogout }) {
   // Define allowed navigation tabs based on role:
   // 1 = admin, 2 = hr, 3 = IT, 4 = other
   const allowedIds =
-    role === 1 || role === 2 ? ['dashboard', 'staff', 'chat', 'logs', 'faq'] :
-    role === 3 ? ['chat', 'logs'] :
+    role === 1 ? ['dashboard', 'staff', 'chat', 'logs', 'faq', 'it-projects'] :
+    role === 2 ? ['dashboard', 'staff', 'chat', 'logs', 'faq'] :
+    role === 3 ? ['chat', 'logs', 'it-projects'] :
     ['chat'];
 
   const filteredNAV = NAV.filter(item => allowedIds.includes(item.id));
@@ -455,6 +477,11 @@ export default function Layout({ user, onLogout }) {
           {allowedIds.includes('faq') && (
             <div style={{ display: active === 'faq' ? 'block' : 'none' }}>
               <FAQEditor />
+            </div>
+          )}
+          {allowedIds.includes('it-projects') && (
+            <div style={{ display: active === 'it-projects' ? 'block' : 'none' }}>
+              <ITProjectManager user={user} staff={staff} />
             </div>
           )}
         </div>

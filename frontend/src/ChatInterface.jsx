@@ -30,8 +30,9 @@ export default function ChatInterface() {
         body: JSON.stringify({ question: text }),
       });
       const data = await res.json();
-      const reply = data.output || data.text || (typeof data === 'string' ? data : JSON.stringify(data));
-      setMessages(prev => [...prev, { id: Date.now() + 1, sender: 'bot', text: reply }]);
+      const reply = data.output || data.text || data.error || (typeof data === 'string' ? data : JSON.stringify(data));
+      const sender = data.error ? 'error' : 'bot';
+      setMessages(prev => [...prev, { id: Date.now() + 1, sender, text: reply }]);
     } catch {
       setMessages(prev => [
         ...prev,

@@ -73,6 +73,15 @@ export class AuthController {
     res.end(buffer);
   }
 
+  @HttpCode(HttpStatus.OK)
+  @Post('staff-report')
+  async getStaffReport(@Res() res: Response) {
+    const buffer = await this.authService.generateStaffExcel();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=Staff_Report.xlsx');
+    res.end(buffer);
+  }
+
   @Get('metrics')
   async getMetrics() {
     return this.authService.getMetrics();

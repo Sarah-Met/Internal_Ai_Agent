@@ -4,6 +4,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ChatModule } from './chat/chat.module';
 import { AuthModule } from './auth/auth.module';
+import { ItTasksModule } from './it-tasks/it-tasks.module';
 
 process.loadEnvFile();
 
@@ -18,6 +19,7 @@ if (!mongoUri) {
     MongooseModule.forRoot(mongoUri),
     ChatModule,
     AuthModule,
+    ItTasksModule,
   ],
   controllers: [AppController],
   providers: [AppService],

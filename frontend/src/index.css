@@ -703,8 +703,8 @@ tbody tr:last-child td:last-child { border-bottom-right-radius: var(--radius); }
   padding: 28px;
   width: 420px;
   max-width: 90vw;
-  box-shadow: 0 25px 50px rgba(0,0,0,0.25);
-  border: 1px solid var(--grey-light);
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.12), 0 0 20px rgba(5, 151, 148, 0.15);
+  border: 2px solid var(--teal);
 }
 
 .modal-title {
@@ -1137,5 +1137,402 @@ tbody tr:last-child td:last-child { border-bottom-right-radius: var(--radius); }
   transform: scale(1.05);
 }
 
+/* Custom outline focus glow for modal fields */
+.modal input:focus,
+.modal textarea:focus,
+.modal select:focus {
+  border-color: var(--teal) !important;
+  box-shadow: 0 0 0 3px rgba(5, 151, 148, 0.2) !important;
+  background: var(--white) !important;
+}
 
+/* ══════════════════════════════════
+   IT PROJECT MANAGER KANBAN OVERHAUL
+   ══════════════════════════════════ */
+.it-column-container {
+  background: #f8fafc;
+  border: 1.5px solid var(--grey-light);
+  border-radius: var(--radius);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 480px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Custom drag-over colors for each section matching their theme */
+.it-column-container.drag-over-todo {
+  background: rgba(148, 163, 184, 0.04) !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 10px 25px -5px rgba(148, 163, 184, 0.12), 0 8px 10px -6px rgba(148, 163, 184, 0.12) !important;
+}
+
+.it-column-container.drag-over-inprogress {
+  background: rgba(14, 165, 233, 0.04) !important;
+  border-color: #0ea5e9 !important;
+  box-shadow: 0 10px 25px -5px rgba(14, 165, 233, 0.12), 0 8px 10px -6px rgba(14, 165, 233, 0.12) !important;
+}
+
+.it-column-container.drag-over-done {
+  background: rgba(16, 185, 129, 0.04) !important;
+  border-color: #10b981 !important;
+  box-shadow: 0 10px 25px -5px rgba(16, 185, 129, 0.12), 0 8px 10px -6px rgba(16, 185, 129, 0.12) !important;
+}
+
+.it-task-card {
+  background: var(--white);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  box-shadow: 0 1.5px 3px rgba(15, 23, 42, 0.03);
+  cursor: grab;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  user-select: none;
+  border: 1.5px solid var(--grey-light);
+  border-left-width: 5px !important; /* Thick left accent bar for strong color presence */
+  animation: cardEnter 0.15s ease forwards;
+}
+
+/* Placeholder styling for the card left in the column during drag */
+.it-task-card.is-dragging {
+  opacity: 0.35 !important;
+  border-style: dashed !important;
+  border-color: var(--grey) !important;
+  background: var(--off-white) !important;
+  pointer-events: none !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+.it-task-card.is-dragging h4,
+.it-task-card.is-dragging p,
+.it-task-card.is-dragging .it-task-meta-row,
+.it-task-card.is-dragging .it-avatar-circle {
+  opacity: 0.3 !important;
+}
+
+@keyframes cardEnter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.it-task-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 20px -5px rgba(15, 23, 42, 0.08), 0 4px 6px -2px rgba(15, 23, 42, 0.03);
+}
+
+.it-task-card:active {
+  cursor: grabbing;
+}
+
+/* Clearer and larger text formatting inside task cards with unique bottom divider */
+.it-task-card h4 {
+  font-size: 1.05rem !important;
+  font-weight: 800 !important;
+  color: var(--navy) !important;
+  line-height: 1.35;
+  margin-bottom: 4px;
+  letter-spacing: -0.3px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+  padding-bottom: 6px;
+}
+
+.required-asterisk {
+  color: var(--red) !important;
+  margin-left: 3px;
+  font-weight: bold;
+}
+
+.it-task-card p {
+  font-size: 0.85rem !important;
+  color: var(--navy-mid) !important; /* Muted but dark navy, extremely clear */
+  line-height: 1.45;
+  margin: 0;
+}
+
+/* Color thematic card styles matching sections - vibrant borders & solid left bars */
+.it-task-card.status-todo {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  border-left-color: #64748b !important;
+}
+.it-task-card.status-todo:hover {
+  border-color: #94a3b8;
+}
+
+.it-task-card.status-in-progress {
+  background: #f0f9ff;
+  border-color: #bae6fd;
+  border-left-color: #0ea5e9 !important;
+}
+.it-task-card.status-in-progress:hover {
+  border-color: #7dd3fc;
+}
+
+.it-task-card.status-done {
+  background: #f0fdfa;
+  border-color: #ccfbf1;
+  border-left-color: #10b981 !important;
+}
+.it-task-card.status-done:hover {
+  border-color: #99f6e4;
+}
+
+/* Overdue tasks colored in soft red and border */
+.it-task-card.is-overdue {
+  background: #fef2f2 !important; /* Pale red background */
+  border-color: #fca5a5 !important; /* Red border */
+  border-left-color: #ef4444 !important; /* Bright red left bar */
+}
+.it-task-card.is-overdue:hover {
+  border-color: #f87171 !important; /* Darker red hover border */
+}
+
+/* Avatar Circle styling */
+.it-avatar-circle {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  text-shadow: 0 0.5px 1px rgba(0,0,0,0.15);
+}
+
+/* Date list and item layouts */
+.it-task-meta-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px dashed rgba(15, 23, 42, 0.08);
+  padding-top: 8px;
+  margin-top: 2px;
+}
+
+.it-task-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: var(--navy-mid);
+}
+
+.it-task-meta-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--grey);
+  flex-shrink: 0;
+}
+
+/* Solid non-faded metric cards styles */
+.metric-card.solid-todo {
+  background: linear-gradient(135deg, #64748b 0%, #475569 100%) !important;
+  border-color: #475569 !important;
+  color: white !important;
+}
+
+.metric-card.solid-inprogress {
+  background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%) !important;
+  border-color: #0284c7 !important;
+  color: white !important;
+}
+
+.metric-card.solid-done {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  border-color: #059669 !important;
+  color: white !important;
+}
+
+.metric-card.solid-overdue {
+  background: linear-gradient(135deg, #fd2d30 0%, #d91e21 100%) !important;
+  border-color: #d91e21 !important;
+  color: white !important;
+  animation: metrics-pulse 3s infinite ease-in-out;
+}
+
+@keyframes metrics-pulse {
+  0%, 100% { box-shadow: var(--shadow-sm); }
+  50% { box-shadow: 0 10px 25px -5px rgba(253, 45, 48, 0.4), 0 8px 10px -6px rgba(253, 45, 48, 0.2); }
+}
+
+.metric-card.solid-todo .metric-label,
+.metric-card.solid-inprogress .metric-label,
+.metric-card.solid-done .metric-label,
+.metric-card.solid-overdue .metric-label {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.metric-card.solid-todo .metric-value,
+.metric-card.solid-inprogress .metric-value,
+.metric-card.solid-done .metric-value,
+.metric-card.solid-overdue .metric-value {
+  color: white !important;
+}
+
+.metric-card.solid-todo .metric-sub,
+.metric-card.solid-inprogress .metric-sub,
+.metric-card.solid-done .metric-sub,
+.metric-card.solid-overdue .metric-sub {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+/* Custom Hour Dropdown styling */
+.custom-hour-dropdown {
+  scrollbar-width: thin;
+  scrollbar-color: var(--teal-dim) var(--grey-light);
+}
+.custom-hour-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-hour-dropdown::-webkit-scrollbar-track {
+  background: var(--off-white);
+  border-radius: 4px;
+}
+.custom-hour-dropdown::-webkit-scrollbar-thumb {
+  background-color: var(--teal-dim);
+  border-radius: 4px;
+  border: 1px solid var(--off-white);
+}
+
+.hour-option {
+  padding: 8px 12px;
+  font-size: 0.825rem;
+  color: var(--navy);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.hour-option:hover {
+  background-color: rgba(5, 151, 148, 0.08);
+  color: var(--teal);
+  font-weight: 600;
+}
+
+/* Hide native arrows inside the minute spinner input */
+.time-number-input::-webkit-outer-spin-button,
+.time-number-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.time-number-input[type=number] {
+  -moz-appearance: textfield;
+}
+
+/* Styled spinner custom controls button container */
+.custom-spinner-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--navy-mid);
+  padding: 0;
+  width: 100%;
+  flex: 1;
+  font-size: 10px;
+  font-weight: bold;
+  line-height: 1;
+  transition: all 0.15s ease;
+}
+
+.custom-spinner-btn:hover {
+  color: var(--teal) !important;
+  background: rgba(5, 151, 148, 0.08) !important;
+}
+
+/* Time Number Input Focus and Transition */
+.time-number-input-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.time-number-input {
+  width: 68px;
+  height: 36px;
+  border: 1.5px solid var(--grey-light);
+  border-radius: var(--radius-sm);
+  padding: 0 26px 0 6px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  background: white;
+  color: var(--navy);
+  outline: none;
+  box-sizing: border-box;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.time-number-input:focus {
+  border-color: var(--teal) !important;
+  box-shadow: 0 0 0 3px rgba(5, 151, 148, 0.15) !important;
+}
+.time-number-input:focus + .custom-spinner-container {
+  border-left-color: var(--teal) !important;
+}
+
+.custom-spinner-container {
+  position: absolute;
+  right: 1.5px;
+  top: 1.5px;
+  bottom: 1.5px;
+  width: 24px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--grey-light);
+  background: var(--off-white);
+  border-top-right-radius: 6px;
+  border-bottom-right-radius: 6px;
+  overflow: hidden;
+  z-index: 3;
+  transition: border-left-color 0.2s ease;
+}
+
+/* Custom Elegant Checkbox */
+.custom-checkbox-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--navy);
+  user-select: none;
+}
+
+.custom-checkbox-box {
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 4px;
+  background: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-sizing: border-box;
+}
+
+.custom-checkbox-container:hover .custom-checkbox-box {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(5, 151, 148, 0.1);
+}
+
+.custom-checkbox-container input:checked + .custom-checkbox-box {
+  border-color: var(--teal);
+  background: var(--teal);
+  box-shadow: 0 2px 6px rgba(5, 151, 148, 0.2);
+}
+
+.custom-checkbox-container input:focus + .custom-checkbox-box {
+  box-shadow: 0 0 0 3px rgba(5, 151, 148, 0.25);
+}
 

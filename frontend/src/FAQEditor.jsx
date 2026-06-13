@@ -546,15 +546,13 @@ export default function FAQEditor() {
                       
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span style={{ fontSize: '0.9rem', color: 'var(--navy)', fontWeight: 600 }}>Category:</span>
-                        <input
-                          type="text"
-                          required
+                        <select
                           value={editCategory}
                           onChange={e => setEditCategory(e.target.value)}
                           style={{
                             height: '34px', padding: '0 12px', border: '1.5px solid #cbd5e1', borderRadius: '6px',
                             fontSize: '0.9rem', fontFamily: 'inherit', color: 'var(--navy)', width: '160px', boxSizing: 'border-box',
-                            outline: 'none', background: 'white',
+                            outline: 'none', background: 'white', cursor: 'pointer',
                             transition: 'border-color 0.15s ease, box-shadow 0.15s ease'
                           }}
                           onFocus={(e) => {
@@ -565,7 +563,11 @@ export default function FAQEditor() {
                             e.target.style.borderColor = '#cbd5e1';
                             e.target.style.boxShadow = 'none';
                           }}
-                        />
+                        >
+                          {Array.from(new Set(["General", "IT", "HR", "Finance", ...categories])).map(c => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
                       </div>
                     </div>
 

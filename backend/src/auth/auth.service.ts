@@ -280,6 +280,72 @@ export class AuthService {
     return await workbook.xlsx.writeBuffer() as any;
   }
 
+  async generateStaffExcel(): Promise<Buffer> {
+    const staff = await this.employeeModel.find().sort({ employee_id: 1 }).exec();
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Staff Report');
+
+    sheet.columns = [
+      { header: 'Employee ID', key: 'employee_id', width: 15 },
+      { header: 'Full Name', key: 'name', width: 25 },
+      { header: 'Department', key: 'department', width: 20 },
+      { header: 'Email Address', key: 'email', width: 30 },
+      { header: 'Role', key: 'role', width: 15 },
+      { header: 'Password Changed', key: 'needs_password_change', width: 20 },
+      { header: 'Security Question', key: 'security_question', width: 30 },
+    ];
+
+    sheet.getRow(1).eachCell((cell) => {
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF4F81BD' }
+      };
+      cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      cell.border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' }
+      };
+    });
+
+    const getRoleName = (roleNum: number) => {
+      switch (roleNum) {
+        case 1: return 'Admin';
+        case 2: return 'HR';
+        case 3: return 'IT';
+        default: return 'Other';
+      }
+    };
+
+    staff.forEach(emp => {
+      const row = sheet.addRow({
+        employee_id: emp.employee_id || '—',
+        name: emp.name || '—',
+        department: emp.department || '—',
+        email: emp.email || '—',
+        role: getRoleName(emp.role),
+        needs_password_change: emp.needs_password_change ? 'No' : 'Yes',
+        security_question: emp.security_question || 'Not Set'
+      });
+
+      row.eachCell((cell) => {
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+        cell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' }
+        };
+      });
+    });
+
+    return await workbook.xlsx.writeBuffer() as any;
+  }
+
   async logQuery(question: string) {
     if (!question) return;
     const queryLog = new this.aiQueryModel({ question });
@@ -433,10 +499,49 @@ export class AuthService {
   }
 
   async updateFaq(id: string, question: string, answer: string, category: string, tags: string) {
-    const numericId = isNaN(Number(id)) ? id : Number(id);
+    let numericId: any = id;
+    try {
+      const client = this.employeeModel.db.getClient();
+      const collection = client.db('FAQNEW').collection('FAQNEW');
+      const { ObjectId } = require('mongodb');
+      let filter = {};
+      try {
+        filter = { _id: new ObjectId(id) };
+      } catch (e) {
+        filter = { _id: id };
+      }
+      const doc = await collection.findOne(filter);
+      if (doc && doc.data && doc.data.id !== undefined) {
+        numericId = Number(doc.data.id);
+      } else if (doc && doc.id !== undefined) {
+        numericId = Number(doc.id);
+      } else if (doc && doc.ID !== undefined) {
+        numericId = Number(doc.ID);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch FAQ document for numeric ID:', e.message);
+    }
+
+    // Self-healing: if numericId is not a number, assign the next available numeric ID
+    if (typeof numericId !== 'number' || isNaN(numericId)) {
+      try {
+        const client = this.employeeModel.db.getClient();
+        const collection = client.db('FAQNEW').collection('FAQNEW');
+        const maxDoc = await collection.find({}).sort({ 'data.id': -1 }).limit(1).toArray();
+        if (maxDoc.length > 0 && maxDoc[0].data && maxDoc[0].data.id) {
+          numericId = Number(maxDoc[0].data.id) + 1;
+        } else {
+          numericId = 1;
+        }
+      } catch (e) {
+        console.warn('Failed to self-heal numeric ID, defaulting to 1:', e.message);
+        numericId = 1;
+      }
+    }
+
     const lastUpdated = new Date().toISOString();
     
-    // 1. Call n8n webhook to update the document and vector embeddings
+    // 1. Call n8n webhook (best effort, wait for n8n response)
     let n8nSuccess = false;
     try {
       await axios.put('http://localhost:5678/webhook/update-faq', {
@@ -452,31 +557,64 @@ export class AuthService {
       console.warn('n8n update webhook failed:', err.message);
     }
 
+    // 2. Poll/Fallback sequence
     if (n8nSuccess) {
-      // Poll MongoDB until the document with this ID is updated by n8n (up to 3 seconds)
       try {
         const client = this.employeeModel.db.getClient();
         const collection = client.db('FAQNEW').collection('FAQNEW');
-        const { ObjectId } = require('mongodb');
-        let filter = {};
-        try {
-          filter = { _id: new ObjectId(id) };
-        } catch (e) {
-          filter = { _id: id };
-        }
+        
+        // Use numeric data.id to trace the document since n8n generates a new _id upon re-inserting
+        const filter = { 'data.id': numericId };
         
         const startTime = Date.now();
-        while (Date.now() - startTime < 3000) {
+        let deleted = false;
+        let reinserted = false;
+
+        while (Date.now() - startTime < 6000) { // Up to 6 seconds timeout
           const doc = await collection.findOne(filter);
-          // Check if n8n has updated the document (verified by matching lastUpdated field)
-          if (doc && doc.data && doc.data.lastUpdated === lastUpdated) {
-            console.log(`[updateFaq] Confirmed document ${id} was updated in MongoDB via n8n.`);
-            break;
+          if (!deleted) {
+            if (!doc) {
+              deleted = true;
+              console.log(`[updateFaq] Confirmed document with numeric ID ${numericId} was deleted by n8n.`);
+            }
+          } else {
+            if (doc) {
+              reinserted = true;
+              console.log(`[updateFaq] Confirmed document with numeric ID ${numericId} was re-inserted by n8n.`);
+              break;
+            }
           }
-          await new Promise(resolve => setTimeout(resolve, 200));
+          await new Promise(resolve => setTimeout(resolve, 150));
+        }
+
+        if (!reinserted) {
+          console.warn(`[updateFaq] n8n delete-and-reinsert sequence did not complete in time. Performing fallback direct write.`);
+          const text = `${question}\n\n${answer}`;
+          
+          // Re-fetch old _id filter
+          const { ObjectId } = require('mongodb');
+          let idFilter = {};
+          try {
+            idFilter = { _id: new ObjectId(id) };
+          } catch (e) {
+            idFilter = { _id: id };
+          }
+          
+          await collection.updateOne(idFilter, {
+            $set: {
+              text,
+              'data.id': numericId, // Ensure the numeric ID is written!
+              'data.question': question,
+              'data.answer': answer,
+              'data.category': category,
+              'data.tags': tags,
+              'data.lastUpdated': lastUpdated,
+              updatedAt: new Date()
+            }
+          }, { upsert: true });
         }
       } catch (e) {
-        console.warn('Failed to poll MongoDB for updated document:', e.message);
+        console.warn('Failed to poll MongoDB for n8n completion:', e.message);
       }
     } else {
       // Fallback: If n8n update webhook fails, write directly to MongoDB
@@ -495,6 +633,7 @@ export class AuthService {
         await collection.updateOne(filter, {
           $set: {
             text,
+            'data.id': numericId, // Ensure the numeric ID is written!
             'data.question': question,
             'data.answer': answer,
             'data.category': category,
@@ -544,48 +683,75 @@ export class AuthService {
       console.warn('n8n add webhook failed:', err.message);
     }
 
-    // 3. Insert directly to MongoDB only if n8n is offline/failed
-    if (!n8nSuccess) {
-      try {
-        const client = this.employeeModel.db.getClient();
-        const collection = client.db('FAQNEW').collection('FAQNEW');
-        const text = `${question}\n\n${answer}`;
-        await collection.insertOne({
-          text,
-          source: 'blob',
-          blobType: 'text/plain',
-          data: {
-            id: nextId,
-            question,
-            answer,
-            category: category || 'General',
-            frequency: '',
-            tags: tags || '',
-            lastUpdated: lastUpdated
-          },
-          createdAt: new Date(),
-          updatedAt: new Date()
-        });
-      } catch (err) {
-        console.error('Failed to create FAQ in database:', err.message);
-        throw new BadRequestException('Failed to create FAQ in database.');
-      }
-    } else {
-      // If n8n succeeded, poll MongoDB until the document with the new ID is inserted by n8n (up to 3 seconds)
+    // 3. Fallback write if not inserted by n8n
+    if (n8nSuccess) {
       try {
         const client = this.employeeModel.db.getClient();
         const collection = client.db('FAQNEW').collection('FAQNEW');
         const startTime = Date.now();
-        while (Date.now() - startTime < 3000) {
+        let found = false;
+        while (Date.now() - startTime < 5000) { // Poll for 5 seconds
           const doc = await collection.findOne({ 'data.id': nextId });
           if (doc) {
+            found = true;
             console.log(`[createFaq] Confirmed document with ID ${nextId} appeared in MongoDB via n8n.`);
             break;
           }
           await new Promise(resolve => setTimeout(resolve, 200));
         }
+
+        if (!found) {
+          console.warn(`[createFaq] n8n did not insert document ${nextId} in time. Performing fallback direct write.`);
+          const text = `${question}\n\n${answer}`;
+          await collection.updateOne({ 'data.id': nextId }, {
+            $set: {
+              text,
+              source: 'blob',
+              blobType: 'text/plain',
+              'data.id': nextId,
+              'data.question': question,
+              'data.answer': answer,
+              'data.category': category || 'General',
+              'data.frequency': '',
+              'data.tags': tags || '',
+              'data.lastUpdated': lastUpdated,
+              updatedAt: new Date()
+            },
+            $setOnInsert: {
+              createdAt: new Date()
+            }
+          }, { upsert: true });
+        }
       } catch (e) {
         console.warn('Failed to poll MongoDB for new document:', e.message);
+      }
+    } else {
+      // Fallback: If n8n add webhook fails completely, write directly to MongoDB
+      try {
+        const client = this.employeeModel.db.getClient();
+        const collection = client.db('FAQNEW').collection('FAQNEW');
+        const text = `${question}\n\n${answer}`;
+        await collection.updateOne({ 'data.id': nextId }, {
+          $set: {
+            text,
+            source: 'blob',
+            blobType: 'text/plain',
+            'data.id': nextId,
+            'data.question': question,
+            'data.answer': answer,
+            'data.category': category || 'General',
+            'data.frequency': '',
+            'data.tags': tags || '',
+            'data.lastUpdated': lastUpdated,
+            updatedAt: new Date()
+          },
+          $setOnInsert: {
+            createdAt: new Date()
+          }
+        }, { upsert: true });
+      } catch (err) {
+        console.error('Failed to create FAQ in database:', err.message);
+        throw new BadRequestException('Failed to create FAQ in database.');
       }
     }
 
