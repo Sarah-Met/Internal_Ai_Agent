@@ -33,11 +33,9 @@ export default function ITProjectManager({ user, staff = [] }) {
   const [search, setSearch] = useState('');
   const [filterAssignee, setFilterAssignee] = useState('all');
   
-  // Drag and drop states
+  // HTML5 Drag & Drop State
   const [draggedTaskId, setDraggedTaskId] = useState(null);
-  const [draggedTask, setDraggedTask] = useState(null);
-  const [dragOverColumn, setDragOverColumn] = useState(null); // 'todo' | 'in-progress' | 'done'
-  const dragCounter = React.useRef({ todo: 0, 'in-progress': 0, done: 0 });
+  const [dragOverColumn, setDragOverColumn] = useState(null);
 
   // Modals state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -493,83 +491,75 @@ export default function ITProjectManager({ user, staff = [] }) {
     }
   };
 
-  // Drag & Drop Handlers
+  // ── HTML5 Drag & Drop ──
   const handleDragStart = (e, task) => {
-    e.dataTransfer.setData('text/plain', task._id);
     e.dataTransfer.effectAllowed = 'move';
-    setDraggedTaskId(task._id);
-    setDraggedTask(task);
+    e.dataTransfer.setData('application/json', JSON.stringify({ taskId: task._id, sourceStatus: task.status }));
+    // Adding class with timeout to allow native drag ghost to render properly
+    setTimeout(() => {
+      setDraggedTaskId(task._id);
+    }, 0);
   };
 
   const handleDragEnd = () => {
     setDraggedTaskId(null);
-    setDraggedTask(null);
     setDragOverColumn(null);
-    dragCounter.current = { todo: 0, 'in-progress': 0, done: 0 };
   };
 
-  const handleDragEnter = (e, columnStatus) => {
+  const handleDragOver = (e, col) => {
     e.preventDefault();
-    if (!dragCounter.current[columnStatus]) {
-      dragCounter.current[columnStatus] = 0;
-    }
-    dragCounter.current[columnStatus]++;
-    if (dragCounter.current[columnStatus] === 1) {
-      setDragOverColumn(columnStatus);
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverColumn !== col) {
+      setDragOverColumn(col);
     }
   };
 
-  const handleDragLeave = (e, columnStatus) => {
+  const handleDragLeave = (e, col) => {
     e.preventDefault();
-    dragCounter.current[columnStatus]--;
-    if (dragCounter.current[columnStatus] <= 0) {
-      dragCounter.current[columnStatus] = 0;
-      if (dragOverColumn === columnStatus) {
-        setDragOverColumn(null);
-      }
+    if (dragOverColumn === col) {
+      setDragOverColumn(null);
     }
   };
 
-  const handleDropOnColumn = async (e, targetStatus) => {
+  const handleDrop = async (e, col) => {
     e.preventDefault();
-    dragCounter.current = { todo: 0, 'in-progress': 0, done: 0 };
     setDragOverColumn(null);
-
-    const taskId = e.dataTransfer.getData('text/plain') || draggedTaskId;
-    if (!taskId) return;
-
-    // Find the task in the current list
-    const taskIndex = tasks.findIndex(t => t._id === taskId);
-    if (taskIndex === -1 || tasks[taskIndex].status === targetStatus) return;
-
-    // Optimistically update status in UI
-    const updatedTasks = [...tasks];
-    const originalStatus = updatedTasks[taskIndex].status;
-    updatedTasks[taskIndex] = {
-      ...updatedTasks[taskIndex],
-      status: targetStatus,
-      completedDate: targetStatus === 'done' ? new Date().toISOString() : null
-    };
-    setTasks(updatedTasks);
-
-    // Persist changes in backend
+    
     try {
-      const res = await fetch(`http://localhost:3000/it-tasks/${taskId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: targetStatus }),
-      });
-
-      if (!res.ok) {
-        throw new Error('Failed to update task status in database');
+      const dataStr = e.dataTransfer.getData('application/json');
+      if (!dataStr) return;
+      
+      const { taskId, sourceStatus } = JSON.parse(dataStr);
+      if (!taskId || sourceStatus === col) {
+        setDraggedTaskId(null);
+        return;
       }
       
-      // Refresh to pull precise dates set by backend
-      fetchTasks();
+      setDraggedTaskId(null);
+
+      const taskIndex = tasks.findIndex(t => t._id === taskId);
+      if (taskIndex !== -1) {
+        // Optimistic update
+        setTasks(prev => prev.map(t =>
+          t._id === taskId
+            ? { ...t, status: col, completedDate: col === 'done' ? new Date().toISOString() : null }
+            : t
+        ));
+        // Persist to backend
+        fetch(`http://localhost:3000/it-tasks/${taskId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: col }),
+        }).then(res => {
+          if (!res.ok) throw new Error();
+          fetchTasks();
+        }).catch(() => {
+          fetchTasks();
+        });
+      }
     } catch (err) {
-      console.error('Drag drop error:', err);
-      // Revert optimistic updates
-      fetchTasks();
+      console.error("Drop error", err);
+      setDraggedTaskId(null);
     }
   };
 
@@ -859,15 +849,16 @@ export default function ITProjectManager({ user, staff = [] }) {
         </button>
       </div>
 
+      {/* Native drag handling replaces custom overlays */}
+
       {/* ── Kanban Columns ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', alignItems: 'start' }}>
         {/* TO DO COLUMN */}
-        <div 
+        <div
           className={`it-column-container ${dragOverColumn === 'todo' ? 'drag-over-todo' : ''}`}
-          onDragOver={(e) => e.preventDefault()}
-          onDragEnter={(e) => handleDragEnter(e, 'todo')}
+          onDragOver={(e) => handleDragOver(e, 'todo')}
           onDragLeave={(e) => handleDragLeave(e, 'todo')}
-          onDrop={(e) => handleDropOnColumn(e, 'todo')}
+          onDrop={(e) => handleDrop(e, 'todo')}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
             <h3 style={{ fontSize: '0.9rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--navy-mid)', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -878,25 +869,24 @@ export default function ITProjectManager({ user, staff = [] }) {
               {filteredTasks.filter(t => t.status === 'todo').length}
             </span>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minHeight: '350px' }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDropOnColumn(e, 'todo')}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minHeight: '350px' }}>
             {filteredTasks.filter(t => t.status === 'todo').map(task => (
-              <TaskCard key={task._id} task={task} onOpen={handleOpenEdit} getRemainingText={getRemainingText} getTaskStatusLabel={getTaskStatusLabel} formatTaskDate={formatTaskDate} getInitials={getInitials} onDragStart={(e) => handleDragStart(e, task)} onDragEnd={handleDragEnd} onDrop={(e) => handleDropOnColumn(e, 'todo')} isDragging={draggedTaskId === task._id} />
+              <TaskCard key={task._id} task={task} onOpen={handleOpenEdit} getRemainingText={getRemainingText} getTaskStatusLabel={getTaskStatusLabel} formatTaskDate={formatTaskDate} getInitials={getInitials} onDragStart={(e) => handleDragStart(e, task)} onDragEnd={handleDragEnd} isDragging={draggedTaskId === task._id} />
             ))}
             {filteredTasks.filter(t => t.status === 'todo').length === 0 && (
-              <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem', padding: '48px 0', border: '1.5px dashed #cbd5e1', borderRadius: 'var(--radius-sm)', background: 'rgba(255, 255, 255, 0.4)' }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDropOnColumn(e, 'todo')}>
-                Drag tasks here
+              <div className={`kanban-empty-slot ${dragOverColumn === 'todo' ? 'kanban-empty-slot-active' : ''}`}>
+                {dragOverColumn === 'todo' ? '✦ Drop here' : 'Drag tasks here'}
               </div>
             )}
           </div>
         </div>
 
         {/* IN PROGRESS COLUMN */}
-        <div 
+        <div
           className={`it-column-container ${dragOverColumn === 'in-progress' ? 'drag-over-inprogress' : ''}`}
-          onDragOver={(e) => e.preventDefault()}
-          onDragEnter={(e) => handleDragEnter(e, 'in-progress')}
+          onDragOver={(e) => handleDragOver(e, 'in-progress')}
           onDragLeave={(e) => handleDragLeave(e, 'in-progress')}
-          onDrop={(e) => handleDropOnColumn(e, 'in-progress')}
+          onDrop={(e) => handleDrop(e, 'in-progress')}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
             <h3 style={{ fontSize: '0.9rem', fontWeight: 800, textTransform: 'uppercase', color: '#0ea5e9', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -907,25 +897,24 @@ export default function ITProjectManager({ user, staff = [] }) {
               {filteredTasks.filter(t => t.status === 'in-progress').length}
             </span>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minHeight: '350px' }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDropOnColumn(e, 'in-progress')}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minHeight: '350px' }}>
             {filteredTasks.filter(t => t.status === 'in-progress').map(task => (
-              <TaskCard key={task._id} task={task} onOpen={handleOpenEdit} getRemainingText={getRemainingText} getTaskStatusLabel={getTaskStatusLabel} formatTaskDate={formatTaskDate} getInitials={getInitials} onDragStart={(e) => handleDragStart(e, task)} onDragEnd={handleDragEnd} onDrop={(e) => handleDropOnColumn(e, 'in-progress')} isDragging={draggedTaskId === task._id} />
+              <TaskCard key={task._id} task={task} onOpen={handleOpenEdit} getRemainingText={getRemainingText} getTaskStatusLabel={getTaskStatusLabel} formatTaskDate={formatTaskDate} getInitials={getInitials} onDragStart={(e) => handleDragStart(e, task)} onDragEnd={handleDragEnd} isDragging={draggedTaskId === task._id} />
             ))}
             {filteredTasks.filter(t => t.status === 'in-progress').length === 0 && (
-              <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem', padding: '48px 0', border: '1.5px dashed #bae6fd', borderRadius: 'var(--radius-sm)', background: 'rgba(255, 255, 255, 0.4)' }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDropOnColumn(e, 'in-progress')}>
-                Drag tasks here
+              <div className={`kanban-empty-slot ${dragOverColumn === 'in-progress' ? 'kanban-empty-slot-active' : ''}`}>
+                {dragOverColumn === 'in-progress' ? '✦ Drop here' : 'Drag tasks here'}
               </div>
             )}
           </div>
         </div>
 
         {/* COMPLETED COLUMN */}
-        <div 
+        <div
           className={`it-column-container ${dragOverColumn === 'done' ? 'drag-over-done' : ''}`}
-          onDragOver={(e) => e.preventDefault()}
-          onDragEnter={(e) => handleDragEnter(e, 'done')}
+          onDragOver={(e) => handleDragOver(e, 'done')}
           onDragLeave={(e) => handleDragLeave(e, 'done')}
-          onDrop={(e) => handleDropOnColumn(e, 'done')}
+          onDrop={(e) => handleDrop(e, 'done')}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
             <h3 style={{ fontSize: '0.9rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--teal-dim)', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -936,13 +925,13 @@ export default function ITProjectManager({ user, staff = [] }) {
               {filteredTasks.filter(t => t.status === 'done').length}
             </span>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minHeight: '350px' }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDropOnColumn(e, 'done')}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minHeight: '350px' }}>
             {filteredTasks.filter(t => t.status === 'done').map(task => (
-              <TaskCard key={task._id} task={task} onOpen={handleOpenEdit} getRemainingText={getRemainingText} getTaskStatusLabel={getTaskStatusLabel} formatTaskDate={formatTaskDate} getInitials={getInitials} onDragStart={(e) => handleDragStart(e, task)} onDragEnd={handleDragEnd} onDrop={(e) => handleDropOnColumn(e, 'done')} isDragging={draggedTaskId === task._id} />
+              <TaskCard key={task._id} task={task} onOpen={handleOpenEdit} getRemainingText={getRemainingText} getTaskStatusLabel={getTaskStatusLabel} formatTaskDate={formatTaskDate} getInitials={getInitials} onDragStart={(e) => handleDragStart(e, task)} onDragEnd={handleDragEnd} isDragging={draggedTaskId === task._id} />
             ))}
             {filteredTasks.filter(t => t.status === 'done').length === 0 && (
-              <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem', padding: '48px 0', border: '1.5px dashed #bbf7d0', borderRadius: 'var(--radius-sm)', background: 'rgba(255, 255, 255, 0.4)' }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDropOnColumn(e, 'done')}>
-                Drag tasks here
+              <div className={`kanban-empty-slot ${dragOverColumn === 'done' ? 'kanban-empty-slot-active' : ''}`}>
+                {dragOverColumn === 'done' ? '✦ Drop here' : 'Drag tasks here'}
               </div>
             )}
           </div>
@@ -1519,7 +1508,7 @@ export default function ITProjectManager({ user, staff = [] }) {
 }
 
 // Sub-Component: TaskCard
-function TaskCard({ task, onOpen, getRemainingText, getTaskStatusLabel, formatTaskDate, getInitials, onDragStart, onDragEnd, onDrop, isDragging }) {
+function TaskCard({ task, onOpen, getRemainingText, getTaskStatusLabel, formatTaskDate, getInitials, onDragStart, onDragEnd, isDragging }) {
   const remainingText = getRemainingText(task);
   const isOverdue = !task.completedDate && (new Date(task.dueDate).getTime() < new Date().getTime());
 
@@ -1566,7 +1555,6 @@ function TaskCard({ task, onOpen, getRemainingText, getTaskStatusLabel, formatTa
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      onDrop={onDrop}
       onClick={() => onOpen(task)}
       className={`it-task-card status-${task.status} ${isOverdue ? 'is-overdue' : ''} ${isDragging ? 'is-dragging' : ''}`}
     >

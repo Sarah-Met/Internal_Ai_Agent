@@ -16,6 +16,35 @@ export class AuthService {
     @InjectModel(PasswordResetRequest.name) private pwdResetReqModel: Model<PasswordResetRequest>,
   ) {}
 
+  private async callN8n(method: 'get' | 'post' | 'put' | 'delete', path: string, data?: any, responseType?: string): Promise<any> {
+    const prodUrl = `http://localhost:5678/webhook${path}`;
+    const testUrl = `http://localhost:5678/webhook-test${path}`;
+    const config: any = { method };
+    
+    // For DELETE requests, pass data as query parameters instead of request body
+    if (method === 'delete' && data) {
+      config.params = data;
+    } else if (data) {
+      config.data = data;
+    }
+    
+    if (responseType) {
+      config.responseType = responseType;
+    }
+    try {
+      return await axios({ url: prodUrl, ...config });
+    } catch (errProd) {
+      console.warn(`n8n prod webhook ${prodUrl} failed:`, errProd.message);
+      try {
+        console.log(`Trying n8n test webhook: ${testUrl}`);
+        return await axios({ url: testUrl, ...config });
+      } catch (errTest) {
+        console.warn(`n8n test webhook ${testUrl} also failed:`, errTest.message);
+        throw new Error('n8n webhook unreachable');
+      }
+    }
+  }
+
   async login(email: string, pass: string) {
     const user = await this.employeeModel.findOne({ email: new RegExp('^' + email + '$', 'i') }).exec();
     if (!user) {
@@ -193,80 +222,67 @@ export class AuthService {
     return this.sessionLogModel.find().sort({ login_time: -1 }).exec();
   }
 
+  /**
+   * Reindexes all employees so their IDs are sequential (1, 2, 3, ...) sorted by their
+   * current numeric ID. Called after deleting an employee to close gaps.
+   */
+  async reindexEmployees(): Promise<{ success: boolean; count: number }> {
+    const employees = await this.employeeModel
+      .find()
+      .sort({ employee_id: 1 })
+      .exec();
+
+    // Sort numerically in case employee_id is a string
+    employees.sort((a, b) => (parseInt(a.employee_id) || 0) - (parseInt(b.employee_id) || 0));
+
+    for (let i = 0; i < employees.length; i++) {
+      const newId = String(i + 1);
+      const oldId = employees[i].employee_id;
+      if (newId !== oldId) {
+        employees[i].employee_id = newId;
+        await employees[i].save();
+      }
+    }
+
+    return { success: true, count: employees.length };
+  }
+
+
   async generateAttendanceExcel(): Promise<Buffer> {
-    const logs = await this.sessionLogModel.find().sort({ login_time: -1 }).exec();
-
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Attendance Report');
-
-    sheet.columns = [
-      { header: 'Employee ID', key: 'employee_id', width: 15 },
-      { header: 'Employee Name', key: 'name', width: 25 },
-      { header: 'Email Address', key: 'email', width: 30 },
-      { header: 'Sign In Time', key: 'login_time', width: 25 },
-      { header: 'Sign Out Time', key: 'logout_time', width: 25 },
-      { header: 'Work Duration', key: 'duration', width: 20 },
-    ];
-
-    sheet.getRow(1).eachCell((cell) => {
-      cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FF4F81BD' }
-      };
-      cell.alignment = { vertical: 'middle', horizontal: 'center' };
-      cell.border = {
-        top: { style: 'thin' },
-        left: { style: 'thin' },
-        bottom: { style: 'thin' },
-        right: { style: 'thin' }
-      };
-    });
-
-    const formatDateTime = (date: Date | string) => {
-      if (!date) return '';
-      const d = new Date(date);
-      if (isNaN(d.getTime())) return String(date);
-      const day = String(d.getDate()).padStart(2, '0');
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const month = months[d.getMonth()];
-      const year = d.getFullYear();
-      let hours = d.getHours();
-      const minutes = String(d.getMinutes()).padStart(2, '0');
-      const ampm = hours >= 12 ? 'PM' : 'AM';
-      hours = hours % 12;
-      hours = hours ? hours : 12;
-      return `${day} ${month}, ${year} ${String(hours).padStart(2, '0')}:${minutes} ${ampm}`;
-    };
-
-    logs.forEach(log => {
-      let workDuration = 'Active Now';
-      if (log.logout_time) {
-        const mins = log.duration_minutes;
-        if (mins !== undefined && mins !== null) {
-          if (mins < 1) {
-            workDuration = '< 1 min';
-          } else {
-            const hrs = Math.floor(mins / 60);
-            const remainingMins = Math.round(mins % 60);
-            workDuration = hrs > 0 ? `${hrs} hr ${remainingMins} min` : `${remainingMins} min`;
-          }
+    try {
+      const response = await this.callN8n('post', '/gen-attendance', {});
+      console.log('[generateAttendanceExcel] Successfully retrieved JSON data from n8n.');
+      const responseData = response.data;
+      let logs: any[] = [];
+      if (responseData) {
+        if (Array.isArray(responseData)) {
+          logs = responseData.map(item => item.json || item);
+        } else if (responseData.data && Array.isArray(responseData.data)) {
+          logs = responseData.data.map(item => item.json || item);
         } else {
-          workDuration = '—';
+          logs = [responseData.json || responseData];
         }
       }
 
-      const row = sheet.addRow({
-        employee_id: log.employee_id || '—',
-        name: log.name || '—',
-        email: log.email || '—',
-        login_time: formatDateTime(log.login_time),
-        logout_time: log.logout_time ? formatDateTime(log.logout_time) : 'Active Now',
-        duration: workDuration
-      });
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet('Attendance Report');
 
-      row.eachCell((cell) => {
+      sheet.columns = [
+        { header: 'Employee ID', key: 'employee_id', width: 15 },
+        { header: 'Employee Name', key: 'name', width: 25 },
+        { header: 'Email Address', key: 'email', width: 30 },
+        { header: 'Sign In Time', key: 'login_time', width: 25 },
+        { header: 'Sign Out Time', key: 'logout_time', width: 25 },
+        { header: 'Work Duration', key: 'duration', width: 20 },
+      ];
+
+      sheet.getRow(1).eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF4F81BD' }
+        };
         cell.alignment = { vertical: 'middle', horizontal: 'center' };
         cell.border = {
           top: { style: 'thin' },
@@ -275,64 +291,154 @@ export class AuthService {
           right: { style: 'thin' }
         };
       });
-    });
 
-    return await workbook.xlsx.writeBuffer() as any;
+      logs.forEach(log => {
+        const row = sheet.addRow({
+          employee_id: log['Employee ID'] || log.employee_id || '—',
+          name: log['Employee Name'] || log.name || '—',
+          email: log['Email Address'] || log.email || '—',
+          login_time: log['Sign In Time'] || log.login_time || '—',
+          logout_time: log['Sign Out Time'] || log.logout_time || '—',
+          duration: log['Work Duration'] || log.duration_minutes || '—'
+        });
+
+        row.eachCell((cell) => {
+          cell.alignment = { vertical: 'middle', horizontal: 'center' };
+          cell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
+          };
+        });
+      });
+
+      return await workbook.xlsx.writeBuffer() as any;
+    } catch (err) {
+      console.warn('[generateAttendanceExcel] n8n failed, falling back to local DB/ExcelJS generation:', err.message);
+      const logs = await this.sessionLogModel.find().sort({ login_time: -1 }).exec();
+
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet('Attendance Report');
+
+      sheet.columns = [
+        { header: 'Employee ID', key: 'employee_id', width: 15 },
+        { header: 'Employee Name', key: 'name', width: 25 },
+        { header: 'Email Address', key: 'email', width: 30 },
+        { header: 'Sign In Time', key: 'login_time', width: 25 },
+        { header: 'Sign Out Time', key: 'logout_time', width: 25 },
+        { header: 'Work Duration', key: 'duration', width: 20 },
+      ];
+
+      sheet.getRow(1).eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF4F81BD' }
+        };
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+        cell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' }
+        };
+      });
+
+      const formatDateTime = (date: Date | string) => {
+        if (!date) return '';
+        const d = new Date(date);
+        if (isNaN(d.getTime())) return String(date);
+        const day = String(d.getDate()).padStart(2, '0');
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const month = months[d.getMonth()];
+        const year = d.getFullYear();
+        let hours = d.getHours();
+        const minutes = String(d.getMinutes()).padStart(2, '0');
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        hours = hours % 12;
+        hours = hours ? hours : 12;
+        return `${day} ${month}, ${year} ${String(hours).padStart(2, '0')}:${minutes} ${ampm}`;
+      };
+
+      logs.forEach(log => {
+        let workDuration = 'Active Now';
+        if (log.logout_time) {
+          const mins = log.duration_minutes;
+          if (mins !== undefined && mins !== null) {
+            if (mins < 1) {
+              workDuration = '< 1 min';
+            } else {
+              const hrs = Math.floor(mins / 60);
+              const remainingMins = Math.round(mins % 60);
+              workDuration = hrs > 0 ? `${hrs} hr ${remainingMins} min` : `${remainingMins} min`;
+            }
+          } else {
+            workDuration = '—';
+          }
+        }
+
+        const row = sheet.addRow({
+          employee_id: log.employee_id || '—',
+          name: log.name || '—',
+          email: log.email || '—',
+          login_time: formatDateTime(log.login_time),
+          logout_time: log.logout_time ? formatDateTime(log.logout_time) : 'Active Now',
+          duration: workDuration
+        });
+
+        row.eachCell((cell) => {
+          cell.alignment = { vertical: 'middle', horizontal: 'center' };
+          cell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
+          };
+        });
+      });
+
+      return await workbook.xlsx.writeBuffer() as any;
+    }
   }
 
   async generateStaffExcel(): Promise<Buffer> {
-    const staff = await this.employeeModel.find().sort({ employee_id: 1 }).exec();
-
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Staff Report');
-
-    sheet.columns = [
-      { header: 'Employee ID', key: 'employee_id', width: 15 },
-      { header: 'Full Name', key: 'name', width: 25 },
-      { header: 'Department', key: 'department', width: 20 },
-      { header: 'Email Address', key: 'email', width: 30 },
-      { header: 'Role', key: 'role', width: 15 },
-      { header: 'Password Changed', key: 'needs_password_change', width: 20 },
-      { header: 'Security Question', key: 'security_question', width: 30 },
-    ];
-
-    sheet.getRow(1).eachCell((cell) => {
-      cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FF4F81BD' }
-      };
-      cell.alignment = { vertical: 'middle', horizontal: 'center' };
-      cell.border = {
-        top: { style: 'thin' },
-        left: { style: 'thin' },
-        bottom: { style: 'thin' },
-        right: { style: 'thin' }
-      };
-    });
-
-    const getRoleName = (roleNum: number) => {
-      switch (roleNum) {
-        case 1: return 'Admin';
-        case 2: return 'HR';
-        case 3: return 'IT';
-        default: return 'Other';
+    try {
+      const response = await this.callN8n('post', '/gen-details', {});
+      console.log('[generateStaffExcel] Successfully retrieved JSON data from n8n.');
+      const responseData = response.data;
+      let staff: any[] = [];
+      if (responseData) {
+        if (Array.isArray(responseData)) {
+          staff = responseData.map(item => item.json || item);
+        } else if (responseData.data && Array.isArray(responseData.data)) {
+          staff = responseData.data.map(item => item.json || item);
+        } else {
+          staff = [responseData.json || responseData];
+        }
       }
-    };
 
-    staff.forEach(emp => {
-      const row = sheet.addRow({
-        employee_id: emp.employee_id || '—',
-        name: emp.name || '—',
-        department: emp.department || '—',
-        email: emp.email || '—',
-        role: getRoleName(emp.role),
-        needs_password_change: emp.needs_password_change ? 'No' : 'Yes',
-        security_question: emp.security_question || 'Not Set'
-      });
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet('Staff Report');
 
-      row.eachCell((cell) => {
+      sheet.columns = [
+        { header: 'Employee ID', key: 'employee_id', width: 15 },
+        { header: 'Full Name', key: 'name', width: 25 },
+        { header: 'Department', key: 'department', width: 20 },
+        { header: 'Email Address', key: 'email', width: 30 },
+        { header: 'Role', key: 'role', width: 15 },
+        { header: 'Password Changed', key: 'needs_password_change', width: 20 },
+        { header: 'Security Question', key: 'security_question', width: 30 },
+      ];
+
+      sheet.getRow(1).eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF4F81BD' }
+        };
         cell.alignment = { vertical: 'middle', horizontal: 'center' };
         cell.border = {
           top: { style: 'thin' },
@@ -341,9 +447,96 @@ export class AuthService {
           right: { style: 'thin' }
         };
       });
-    });
 
-    return await workbook.xlsx.writeBuffer() as any;
+      staff.forEach(emp => {
+        const row = sheet.addRow({
+          employee_id: emp.employee_id || '—',
+          name: emp.name || '—',
+          department: emp.department || '—',
+          email: emp.email || '—',
+          role: emp.role || 'Other',
+          needs_password_change: emp.needs_password_change === false ? 'Yes' : 'No',
+          security_question: emp.security_question || 'Not Set'
+        });
+
+        row.eachCell((cell) => {
+          cell.alignment = { vertical: 'middle', horizontal: 'center' };
+          cell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
+          };
+        });
+      });
+
+      return await workbook.xlsx.writeBuffer() as any;
+    } catch (err) {
+      console.warn('[generateStaffExcel] n8n failed, falling back to local DB/ExcelJS generation:', err.message);
+      const staff = await this.employeeModel.find().sort({ employee_id: 1 }).exec();
+
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet('Staff Report');
+
+      sheet.columns = [
+        { header: 'Employee ID', key: 'employee_id', width: 15 },
+        { header: 'Full Name', key: 'name', width: 25 },
+        { header: 'Department', key: 'department', width: 20 },
+        { header: 'Email Address', key: 'email', width: 30 },
+        { header: 'Role', key: 'role', width: 15 },
+        { header: 'Password Changed', key: 'needs_password_change', width: 20 },
+        { header: 'Security Question', key: 'security_question', width: 30 },
+      ];
+
+      sheet.getRow(1).eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF4F81BD' }
+        };
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+        cell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' }
+        };
+      });
+
+      const getRoleName = (roleNum: number) => {
+        switch (roleNum) {
+          case 1: return 'Admin';
+          case 2: return 'HR';
+          case 3: return 'IT';
+          default: return 'Other';
+        }
+      };
+
+      staff.forEach(emp => {
+        const row = sheet.addRow({
+          employee_id: emp.employee_id || '—',
+          name: emp.name || '—',
+          department: emp.department || '—',
+          email: emp.email || '—',
+          role: getRoleName(emp.role),
+          needs_password_change: emp.needs_password_change ? 'No' : 'Yes',
+          security_question: emp.security_question || 'Not Set'
+        });
+
+        row.eachCell((cell) => {
+          cell.alignment = { vertical: 'middle', horizontal: 'center' };
+          cell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
+          };
+        });
+      });
+
+      return await workbook.xlsx.writeBuffer() as any;
+    }
   }
 
   async logQuery(question: string) {
@@ -388,7 +581,7 @@ export class AuthService {
   async getFaqs() {
     let list: any[] = [];
     try {
-      const response = await axios.get('http://localhost:5678/webhook/get-all-faqs');
+      const response = await this.callN8n('get', '/get-all-faqs');
       const data = response.data;
       let temp: any = [];
       if (Array.isArray(data)) {
@@ -405,24 +598,19 @@ export class AuthService {
       list = temp;
     } catch (err) {
       console.warn('n8n webhook unreachable, falling back to direct DB read:', err.message);
-    }
-
-    // Check MongoDB directly to see if it has more up-to-date entries than n8n
-    try {
-      const client = this.employeeModel.db.getClient();
-      const collection = client.db('FAQNEW').collection('FAQNEW');
-      const dbList = await collection.find({}).toArray();
-      if (Array.isArray(dbList)) {
-        if (!Array.isArray(list) || list.length === 0 || dbList.length > list.length) {
+      try {
+        const client = this.employeeModel.db.getClient();
+        const collection = client.db('FAQNEW').collection('FAQNEW');
+        const dbList = await collection.find({}).toArray();
+        if (Array.isArray(dbList)) {
           list = dbList;
         }
+      } catch (dbErr) {
+        console.error('Error fetching FAQs directly from MongoDB:', dbErr.message);
       }
-    } catch (err) {
-      console.error('Error fetching FAQs directly from MongoDB:', err.message);
-      if (!Array.isArray(list)) list = [];
     }
 
-    if (!Array.isArray(list)) {
+    if (!list || !Array.isArray(list)) {
       list = [];
     }
 
@@ -541,10 +729,9 @@ export class AuthService {
 
     const lastUpdated = new Date().toISOString();
     
-    // 1. Call n8n webhook (best effort, wait for n8n response)
-    let n8nSuccess = false;
     try {
-      await axios.put('http://localhost:5678/webhook/update-faq', {
+      // 1. Call n8n webhook
+      await this.callN8n('put', '/update-faq', {
         id: numericId,
         question,
         answer,
@@ -552,71 +739,9 @@ export class AuthService {
         tags,
         lastUpdated
       });
-      n8nSuccess = true;
+      console.log(`[updateFaq] Successfully updated FAQ ID ${numericId} via n8n.`);
     } catch (err) {
-      console.warn('n8n update webhook failed:', err.message);
-    }
-
-    // 2. Poll/Fallback sequence
-    if (n8nSuccess) {
-      try {
-        const client = this.employeeModel.db.getClient();
-        const collection = client.db('FAQNEW').collection('FAQNEW');
-        
-        // Use numeric data.id to trace the document since n8n generates a new _id upon re-inserting
-        const filter = { 'data.id': numericId };
-        
-        const startTime = Date.now();
-        let deleted = false;
-        let reinserted = false;
-
-        while (Date.now() - startTime < 6000) { // Up to 6 seconds timeout
-          const doc = await collection.findOne(filter);
-          if (!deleted) {
-            if (!doc) {
-              deleted = true;
-              console.log(`[updateFaq] Confirmed document with numeric ID ${numericId} was deleted by n8n.`);
-            }
-          } else {
-            if (doc) {
-              reinserted = true;
-              console.log(`[updateFaq] Confirmed document with numeric ID ${numericId} was re-inserted by n8n.`);
-              break;
-            }
-          }
-          await new Promise(resolve => setTimeout(resolve, 150));
-        }
-
-        if (!reinserted) {
-          console.warn(`[updateFaq] n8n delete-and-reinsert sequence did not complete in time. Performing fallback direct write.`);
-          const text = `${question}\n\n${answer}`;
-          
-          // Re-fetch old _id filter
-          const { ObjectId } = require('mongodb');
-          let idFilter = {};
-          try {
-            idFilter = { _id: new ObjectId(id) };
-          } catch (e) {
-            idFilter = { _id: id };
-          }
-          
-          await collection.updateOne(idFilter, {
-            $set: {
-              text,
-              'data.id': numericId, // Ensure the numeric ID is written!
-              'data.question': question,
-              'data.answer': answer,
-              'data.category': category,
-              'data.tags': tags,
-              'data.lastUpdated': lastUpdated,
-              updatedAt: new Date()
-            }
-          }, { upsert: true });
-        }
-      } catch (e) {
-        console.warn('Failed to poll MongoDB for n8n completion:', e.message);
-      }
-    } else {
+      console.warn('n8n update webhook failed, falling back to direct DB write:', err.message);
       // Fallback: If n8n update webhook fails, write directly to MongoDB
       try {
         const client = this.employeeModel.db.getClient();
@@ -642,8 +767,8 @@ export class AuthService {
             updatedAt: new Date()
           }
         });
-      } catch (err) {
-        console.error('Failed to update FAQ in database:', err.message);
+      } catch (dbErr) {
+        console.error('Failed to update FAQ in database:', dbErr.message);
         throw new BadRequestException('Failed to update FAQ in database.');
       }
     }
@@ -655,7 +780,7 @@ export class AuthService {
     let nextId = 1;
     const lastUpdated = new Date().toISOString();
     
-    // 1. Calculate next ID directly from DB
+    // Calculate next ID directly from DB
     try {
       const client = this.employeeModel.db.getClient();
       const collection = client.db('FAQNEW').collection('FAQNEW');
@@ -667,10 +792,9 @@ export class AuthService {
       console.warn('Failed to calculate next ID from DB, defaulting to 1:', e.message);
     }
 
-    // 2. Call n8n webhook (best effort)
-    let n8nSuccess = false;
     try {
-      await axios.post('http://localhost:5678/webhook/add-faq', {
+      // 1. Call n8n webhook
+      await this.callN8n('post', '/add-faq', {
         id: nextId,
         question,
         answer,
@@ -678,54 +802,9 @@ export class AuthService {
         tags,
         lastUpdated
       });
-      n8nSuccess = true;
+      console.log(`[createFaq] Successfully created FAQ ID ${nextId} via n8n.`);
     } catch (err) {
-      console.warn('n8n add webhook failed:', err.message);
-    }
-
-    // 3. Fallback write if not inserted by n8n
-    if (n8nSuccess) {
-      try {
-        const client = this.employeeModel.db.getClient();
-        const collection = client.db('FAQNEW').collection('FAQNEW');
-        const startTime = Date.now();
-        let found = false;
-        while (Date.now() - startTime < 5000) { // Poll for 5 seconds
-          const doc = await collection.findOne({ 'data.id': nextId });
-          if (doc) {
-            found = true;
-            console.log(`[createFaq] Confirmed document with ID ${nextId} appeared in MongoDB via n8n.`);
-            break;
-          }
-          await new Promise(resolve => setTimeout(resolve, 200));
-        }
-
-        if (!found) {
-          console.warn(`[createFaq] n8n did not insert document ${nextId} in time. Performing fallback direct write.`);
-          const text = `${question}\n\n${answer}`;
-          await collection.updateOne({ 'data.id': nextId }, {
-            $set: {
-              text,
-              source: 'blob',
-              blobType: 'text/plain',
-              'data.id': nextId,
-              'data.question': question,
-              'data.answer': answer,
-              'data.category': category || 'General',
-              'data.frequency': '',
-              'data.tags': tags || '',
-              'data.lastUpdated': lastUpdated,
-              updatedAt: new Date()
-            },
-            $setOnInsert: {
-              createdAt: new Date()
-            }
-          }, { upsert: true });
-        }
-      } catch (e) {
-        console.warn('Failed to poll MongoDB for new document:', e.message);
-      }
-    } else {
+      console.warn('n8n add webhook failed, falling back to direct DB write:', err.message);
       // Fallback: If n8n add webhook fails completely, write directly to MongoDB
       try {
         const client = this.employeeModel.db.getClient();
@@ -749,8 +828,8 @@ export class AuthService {
             createdAt: new Date()
           }
         }, { upsert: true });
-      } catch (err) {
-        console.error('Failed to create FAQ in database:', err.message);
+      } catch (dbErr) {
+        console.error('Failed to create FAQ in database:', dbErr.message);
         throw new BadRequestException('Failed to create FAQ in database.');
       }
     }
@@ -781,55 +860,68 @@ export class AuthService {
     }
   }
 
-  async deleteFaq(id: string) {
-    let numericId: any = id;
-    
-    // Find the FAQ document to retrieve its numeric data.id before deletion
+  async deleteFaq(id: string, numericId?: number) {
+    // Use the numeric ID from the frontend (it knows it from the FAQ data)
+    const nid = numericId ?? null;
+
+    // If we don't have a numeric ID, try to look it up from the database
+    let resolvedNumericId = nid;
+    if (resolvedNumericId === null) {
+      try {
+        const client = this.employeeModel.db.getClient();
+        const collection = client.db('FAQNEW').collection('FAQNEW');
+        const { ObjectId } = require('mongodb');
+        let filter = {};
+        try {
+          filter = { _id: new ObjectId(id) };
+        } catch (e) {
+          filter = { _id: id };
+        }
+        const doc = await collection.findOne(filter);
+        if (doc?.data?.id !== undefined) {
+          resolvedNumericId = Number(doc.data.id);
+        }
+      } catch (e) {
+        console.warn('Failed to fetch FAQ for numeric ID:', e.message);
+      }
+    }
+
+    // Try n8n only with a numeric ID (avoid sending the hex _id string)
+    if (resolvedNumericId !== null) {
+      try {
+        await this.callN8n('delete', '/delete-faq', { id: resolvedNumericId });
+        console.log(`[deleteFaq] Successfully deleted FAQ ID ${resolvedNumericId} via n8n.`);
+        return { success: true };
+      } catch (err) {
+        console.warn('n8n delete webhook failed:', err.message);
+      }
+    }
+
+    // Fallback: delete directly from MongoDB
     try {
       const client = this.employeeModel.db.getClient();
       const collection = client.db('FAQNEW').collection('FAQNEW');
       const { ObjectId } = require('mongodb');
+
       let filter = {};
       try {
         filter = { _id: new ObjectId(id) };
       } catch (e) {
         filter = { _id: id };
       }
-      const doc = await collection.findOne(filter);
-      if (doc && doc.data && doc.data.id !== undefined) {
-        numericId = Number(doc.data.id);
-      }
-    } catch (e) {
-      console.warn('Failed to fetch FAQ document for numeric ID:', e.message);
-    }
 
-    // 1. Call n8n webhook (best effort)
-    try {
-      await axios.delete('http://localhost:5678/webhook/delete-faq', {
-        data: { id: numericId }
-      });
-    } catch (err) {
-      console.warn('n8n delete webhook failed:', err.message);
-    }
+      const result = await collection.deleteOne(filter);
 
-    // 2. Always delete directly from MongoDB
-    try {
-      const client = this.employeeModel.db.getClient();
-      const collection = client.db('FAQNEW').collection('FAQNEW');
-      const { ObjectId } = require('mongodb');
-      let filter = {};
-      try {
-        filter = { _id: new ObjectId(id) };
-      } catch (e) {
-        filter = { _id: id };
+      if (result.deletedCount === 0) {
+        throw new BadRequestException('FAQ not found.');
       }
-      await collection.deleteOne(filter);
-      
-      // Auto-reindex all remaining FAQs to keep numbering consecutive and clean
+
       await this.reindexFaqs();
-      
-    } catch (err) {
-      console.error('Failed to delete FAQ from database:', err.message);
+
+      console.log(`[deleteFaq] Successfully deleted FAQ ${id} from database.`);
+    } catch (dbErr) {
+      if (dbErr instanceof BadRequestException) throw dbErr;
+      console.error('Failed to delete FAQ from database:', dbErr.message);
       throw new BadRequestException('Failed to delete FAQ from database.');
     }
 
