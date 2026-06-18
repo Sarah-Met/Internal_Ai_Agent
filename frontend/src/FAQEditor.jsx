@@ -29,21 +29,13 @@ const parseCustomDate = (dateStr) => {
   return null;
 };
 
-// Helper function to extract and format the FAQ date
-const getFAQDateString = (faq) => {
-  let date = null;
-  const dateStr = faq.data?.lastUpdated || faq.updatedAt || faq.createdAt;
-  if (dateStr) {
-    date = parseCustomDate(dateStr);
-  }
-  
-  if (!date && faq._id && typeof faq._id === 'string' && faq._id.length === 24) {
-    date = new Date(parseInt(faq._id.substring(0, 8), 16) * 1000);
-  }
-
-  if (!date) return 'Unknown';
-
+// Helper function to format the FAQ updated date as: "9th Jun 26, 7:20pm"
+const formatFAQDate = (dateStr) => {
+  if (!dateStr) return 'Unknown';
   try {
+    const date = parseCustomDate(dateStr);
+    if (!date) return dateStr;
+
     const day = date.getDate();
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const monthName = months[date.getMonth()];
@@ -57,7 +49,7 @@ const getFAQDateString = (faq) => {
 
     return `${day} ${monthName} ${year}, ${hours}:${minutes}${ampm}`;
   } catch (e) {
-    return 'Unknown';
+    return dateStr;
   }
 };
 
@@ -107,41 +99,23 @@ export default function FAQEditor() {
 
   // Helper to parse dates for sorting
   const getFAQTimestamp = (faq) => {
-    const dateStr = faq.data?.lastUpdated || faq.updatedAt || faq.createdAt;
-    if (dateStr) {
-      const date = parseCustomDate(dateStr);
-      if (date) return date.getTime();
-    }
-    if (faq._id && typeof faq._id === 'string' && faq._id.length === 24) {
-      return parseInt(faq._id.substring(0, 8), 16) * 1000;
-    }
-    return 0;
+    const dateStr = faq.data?.lastUpdated;
+    if (!dateStr) return 0;
+    const date = parseCustomDate(dateStr);
+    return date ? date.getTime() : 0;
   };
 
   const fetchFaqs = async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('http://localhost:5678/webhook/get-all-faqs', { cache: 'no-store' });
+      const res = await fetch('http://localhost:3000/auth/faq');
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.message || 'Failed to load FAQs');
       }
       const data = await res.json();
-      
-      let parsedFaqs = [];
-      if (Array.isArray(data)) {
-        parsedFaqs = data;
-      } else if (data && typeof data === 'object') {
-        if (Array.isArray(data.data)) parsedFaqs = data.data;
-        else if (Array.isArray(data.faqs)) parsedFaqs = data.faqs;
-        else parsedFaqs = [data]; // Single object
-      }
-
-      // Handle n8n's item wrapper if present { json: { ... } }
-      parsedFaqs = parsedFaqs.map(item => item.json ? item.json : item);
-
-      setFaqs(parsedFaqs);
+      setFaqs(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err.message || 'Could not load FAQs. Make sure the backend is running.');
     } finally {
@@ -205,8 +179,7 @@ export default function FAQEditor() {
 
       showToast('Question added successfully!', 'success');
       setIsAddingInline(false);
-      // Delay fetching slightly to allow backend time to save before webhook reads
-      setTimeout(() => fetchFaqs(), 1500);
+      fetchFaqs();
     } catch (err) {
       showToast(err.message || 'Error saving FAQ.', 'error');
     } finally {
@@ -237,26 +210,9 @@ export default function FAQEditor() {
 
       if (!res.ok) throw new Error('Failed to save FAQ');
 
-      // Optimistic update for instant feedback
-      setFaqs(prev => prev.map(faq => 
-        faq._id === id 
-          ? {
-              ...faq,
-              data: {
-                ...faq.data,
-                question: editQuestion,
-                answer: editAnswer,
-                category: editCategory,
-                tags: editTags,
-                lastUpdated: new Date().toISOString()
-              },
-              text: `${editQuestion}\n\n${editAnswer}`
-            }
-          : faq
-      ));
-
       showToast('Question updated successfully!', 'success');
       setEditingId(null);
+      fetchFaqs();
     } catch (err) {
       showToast(err.message || 'Error saving FAQ.', 'error');
     } finally {
@@ -271,16 +227,13 @@ export default function FAQEditor() {
       const res = await fetch('http://localhost:3000/auth/faq/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: deleteConfirm.id, numericId: deleteConfirm.numericId }),
+        body: JSON.stringify({ id: deleteConfirm.id }),
       });
 
       if (!res.ok) throw new Error();
-      
-      // Optimistic update
-      setFaqs(prev => prev.filter(faq => faq._id !== deleteConfirm.id));
-      
       showToast('Question deleted successfully!', 'success');
       setDeleteConfirm(null);
+      fetchFaqs();
     } catch {
       showToast('Failed to delete FAQ. Is the backend running?', 'error');
     } finally {
@@ -565,7 +518,7 @@ export default function FAQEditor() {
               const aText = faq.data?.answer || faq.text?.split('\n\n')[1] || faq.text || '';
               const category = faq.data?.category || 'General';
               const tags = faq.data?.tags ? faq.data.tags.split(',').map(t => t.trim()) : [];
-              const updated = getFAQDateString(faq);
+              const updated = formatFAQDate(faq.data?.lastUpdated);
               const idVal = faq.data?.id || '—';
 
               const isEditing = editingId === faq._id;
@@ -807,7 +760,7 @@ export default function FAQEditor() {
                       <button 
                         className="btn btn-primary" 
                         style={{ padding: '0 16px', fontSize: '0.85rem', fontWeight: '600', height: '35px', background: '#ef4444', border: 'none', display: 'flex', alignItems: 'center', gap: '6px' }} 
-                        onClick={() => setDeleteConfirm({ id: faq._id, numericId: faq.data?.id, questionText: qText })}
+                        onClick={() => setDeleteConfirm({ id: faq._id, questionText: qText })}
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                           <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>

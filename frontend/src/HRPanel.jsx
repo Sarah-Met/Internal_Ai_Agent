@@ -86,10 +86,7 @@ function Modal({ config, onClose, onSuccess, onOptimisticDelete, staffList = [],
             // Check if the deleted employee is gone from DB
             const stillExists = data.some(e => String(e.employee_id) === String(deletedId));
             if (!stillExists) {
-              // Confirmed gone — reindex so IDs stay sequential, then sync the full list
-              try {
-                await fetch('http://localhost:3000/auth/reindex-employees', { method: 'POST' });
-              } catch {}
+              // Confirmed gone — sync the full list from DB
               if (onSuccess) onSuccess();
             } else {
               // Still in DB — retry
@@ -174,10 +171,7 @@ function Modal({ config, onClose, onSuccess, onOptimisticDelete, staffList = [],
         payload = { employee_id: fields.f1 };
       } else if (config.type === 'add') {
         const list = staffList || [];
-        const usedIds = new Set(list.map(e => parseInt(e.employee_id) || 0));
-        let nextNum = 1;
-        while (usedIds.has(nextNum)) nextNum++;
-        const nextId = String(nextNum);
+        const nextId = (list.reduce((max, e) => Math.max(max, parseInt(e.employee_id) || 0), 0) + 1).toString();
         payload = { 
           employee_id: nextId, 
           name: fields.f2, 
@@ -890,10 +884,7 @@ export default function HRPanel({ view, staff = [], onStaffLoaded }) {
     setAddLoading(true);
     try {
       const list = staff || [];
-      const usedIds = new Set(list.map(e => parseInt(e.employee_id) || 0));
-      let nextNum = 1;
-      while (usedIds.has(nextNum)) nextNum++;
-      const nextId = String(nextNum);
+      const nextId = (list.reduce((max, e) => Math.max(max, parseInt(e.employee_id) || 0), 0) + 1).toString();
       const payload = {
         employee_id: nextId,
         name: addFormData.name,

@@ -112,13 +112,7 @@ export class AuthController {
 
   @HttpCode(HttpStatus.OK)
   @Post('faq/delete')
-  async deleteFaq(@Body() body: { id: string; numericId?: number }) {
-    return this.authService.deleteFaq(body.id, body.numericId);
-  }
-
-  @HttpCode(HttpStatus.OK)
-  @Post('reindex-employees')
-  async reindexEmployees() {
-    return this.authService.reindexEmployees();
+  async deleteFaq(@Body() body: { id: string }) {
+    return this.authService.deleteFaq(body.id);
   }
 }
