@@ -9,11 +9,11 @@ export class ITTask extends Document {
   @Prop()
   description?: string;
 
-  @Prop({ required: true })
-  assigneeId: string; // employee_id of employee
+  @Prop({ required: true, type: [String] })
+  assigneeIds: string[]; // employee_ids of assigned employees
 
-  @Prop({ required: true })
-  assigneeName: string; // name of employee
+  @Prop({ required: true, type: [String] })
+  assigneeNames: string[]; // names of assigned employees
 
   @Prop({ required: true, default: 'todo' })
   status: 'todo' | 'in-progress' | 'done';

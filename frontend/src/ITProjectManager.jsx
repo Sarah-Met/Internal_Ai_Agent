@@ -33,23 +33,95 @@ export default function ITProjectManager({ user, staff = [] }) {
   const [search, setSearch] = useState('');
   const [filterAssignee, setFilterAssignee] = useState('all');
   
-  // Drag and drop states
+  // ── Pointer-based Drag & Drop ──────────────────────────────────────────────
   const [draggedTaskId, setDraggedTaskId] = useState(null);
   const [draggedTask, setDraggedTask] = useState(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-  const [dragOverColumn, setDragOverColumn] = useState(null); // 'todo' | 'in-progress' | 'done'
-  const dragCounter = React.useRef({ todo: 0, 'in-progress': 0, done: 0 });
+  const [dragOverColumn, setDragOverColumn] = useState(null);
 
-  // Follow mouse position during drag-and-drop to position our custom preview cleanly
+  // Grab offset: where inside the card the user pressed down
+  const dragGrabOffset = React.useRef({ x: 0, y: 0 });
+
+  // Refs to each column so we can hit-test on pointerup
+  const todoColRef = React.useRef(null);
+  const inProgressColRef = React.useRef(null);
+  const doneColRef = React.useRef(null);
+
+  // Always-fresh refs so pointer event closures don't go stale
+  const tasksRef = React.useRef(tasks);
+  useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+  const draggedTaskIdRef = React.useRef(null);
+  useEffect(() => { draggedTaskIdRef.current = draggedTaskId; }, [draggedTaskId]);
+
+  // Returns which column status the pointer (x, y) is currently inside
+  const getColumnAtPoint = React.useCallback((x, y) => {
+    const cols = [
+      [todoColRef, 'todo'],
+      [inProgressColRef, 'in-progress'],
+      [doneColRef, 'done'],
+    ];
+    for (const [ref, status] of cols) {
+      if (!ref.current) continue;
+      const r = ref.current.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return status;
+    }
+    return null;
+  }, []);
+
+  // Attach window-level pointer handlers whenever a drag is active
   useEffect(() => {
-    const handleWindowDragOver = (e) => {
-      if (draggedTaskId) {
-        setMousePos({ x: e.clientX, y: e.clientY });
-      }
+    if (!draggedTaskId) return;
+
+    // Add grabbing cursor to body during drag
+    document.body.style.cursor = 'grabbing';
+    document.body.style.userSelect = 'none';
+
+    const onMove = (e) => {
+      setMousePos({ x: e.clientX, y: e.clientY });
+      setDragOverColumn(getColumnAtPoint(e.clientX, e.clientY));
     };
-    window.addEventListener('dragover', handleWindowDragOver);
-    return () => window.removeEventListener('dragover', handleWindowDragOver);
-  }, [draggedTaskId]);
+
+    const onUp = (e) => {
+      const targetStatus = getColumnAtPoint(e.clientX, e.clientY);
+      const taskId = draggedTaskIdRef.current;
+      const currentTasks = tasksRef.current;
+
+      if (targetStatus && taskId) {
+        const taskIndex = currentTasks.findIndex(t => t._id === taskId);
+        if (taskIndex !== -1 && currentTasks[taskIndex].status !== targetStatus) {
+          // Optimistic UI update
+          const updated = [...currentTasks];
+          updated[taskIndex] = {
+            ...updated[taskIndex],
+            status: targetStatus,
+            completedDate: targetStatus === 'done' ? new Date().toISOString() : null,
+          };
+          setTasks(updated);
+          // Persist to backend
+          fetch(`http://localhost:3000/it-tasks/${taskId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: targetStatus }),
+          }).then(r => { if (!r.ok) throw new Error(); fetchTasks(); })
+            .catch(() => fetchTasks());
+        }
+      }
+
+      // Always clear drag state on pointer up
+      setDraggedTaskId(null);
+      setDraggedTask(null);
+      setDragOverColumn(null);
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+  }, [draggedTaskId, getColumnAtPoint]);
 
   // Modals state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -59,7 +131,7 @@ export default function ITProjectManager({ user, staff = [] }) {
   // Form fields
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [assigneeId, setAssigneeId] = useState('');
+  const [assigneeIds, setAssigneeIds] = useState([]); // array of employee_ids
   const [status, setStatus] = useState('todo');
   const [notes, setNotes] = useState('');
 
@@ -145,9 +217,9 @@ export default function ITProjectManager({ user, staff = [] }) {
 
   // Set default assignee when modal opens
   useEffect(() => {
-    if (showAddModal && staff.length > 0 && !assigneeId) {
+    if (showAddModal && staff.length > 0 && assigneeIds.length === 0) {
       const self = staff.find(s => s.employee_id === user?.employee_id);
-      setAssigneeId(self ? self.employee_id : staff[0].employee_id);
+      setAssigneeIds(self ? [self.employee_id] : [staff[0].employee_id]);
     }
   }, [showAddModal, staff, user]);
 
@@ -176,7 +248,7 @@ export default function ITProjectManager({ user, staff = [] }) {
 
     if (staff.length > 0) {
       const self = staff.find(s => s.employee_id === user?.employee_id);
-      setAssigneeId(self ? self.employee_id : staff[0].employee_id);
+      setAssigneeIds(self ? [self.employee_id] : [staff[0].employee_id]);
     }
   };
 
@@ -264,8 +336,8 @@ export default function ITProjectManager({ user, staff = [] }) {
 
   const handleCreateTask = async (e) => {
     e.preventDefault();
-    if (!title || !assigneeId) {
-      setFormError('Please fill out all required fields.');
+    if (!title || assigneeIds.length === 0) {
+      setFormError('Please fill out all required fields and select at least one assignee.');
       return;
     }
 
@@ -316,13 +388,13 @@ export default function ITProjectManager({ user, staff = [] }) {
       return;
     }
 
-    const assignee = staff.find(s => s.employee_id === assigneeId) || { name: 'Unknown' };
+    const selectedStaff = staff.filter(s => assigneeIds.includes(s.employee_id));
 
     const payload = {
       title,
       description,
-      assigneeId,
-      assigneeName: assignee.name,
+      assigneeIds,
+      assigneeNames: selectedStaff.map(s => s.name),
       startDate: calculatedStart,
       dueDate: calculatedDue,
       startAllDay,
@@ -356,7 +428,7 @@ export default function ITProjectManager({ user, staff = [] }) {
     setSelectedTask(task);
     setTitle(task.title || '');
     setDescription(task.description || '');
-    setAssigneeId(task.assigneeId || '');
+    setAssigneeIds(Array.isArray(task.assigneeIds) ? task.assigneeIds : (task.assigneeId ? [task.assigneeId] : []));
     setStatus(task.status || 'todo');
     setNotes(task.notes || '');
 
@@ -386,8 +458,8 @@ export default function ITProjectManager({ user, staff = [] }) {
     e.preventDefault();
     if (!selectedTask) return;
 
-    if (!title || !assigneeId) {
-      setFormError('Please fill out all required fields.');
+    if (!title || assigneeIds.length === 0) {
+      setFormError('Please fill out all required fields and select at least one assignee.');
       return;
     }
 
@@ -443,13 +515,13 @@ export default function ITProjectManager({ user, staff = [] }) {
       return;
     }
 
-    const assignee = staff.find(s => s.employee_id === assigneeId) || { name: selectedTask.assigneeName };
+    const selectedStaff = staff.filter(s => assigneeIds.includes(s.employee_id));
 
     const payload = {
       title,
       description,
-      assigneeId,
-      assigneeName: assignee.name,
+      assigneeIds,
+      assigneeNames: selectedStaff.map(s => s.name),
       startDate: calculatedStart,
       dueDate: calculatedDue,
       startAllDay,
@@ -501,98 +573,24 @@ export default function ITProjectManager({ user, staff = [] }) {
     }
   };
 
-  // Drag & Drop Handlers
-  const handleDragStart = (e, task) => {
-    // Set drag transfer properties synchronously
-    e.dataTransfer.setData('text/plain', task._id);
-    e.dataTransfer.effectAllowed = 'move';
+  // Pointer down handler — starts the drag from a card
+  const handlePointerDown = (e, task) => {
+    // Only respond to primary mouse button or touch
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    // Don't initiate drag if the user clicked a button inside the card
+    if (e.target.closest('button, a, input, select, textarea')) return;
 
-    // Set a blank transparent image to hide the default browser drag ghost representation
-    const img = new Image();
-    img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-    e.dataTransfer.setDragImage(img, 0, 0);
+    e.preventDefault();
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    dragGrabOffset.current = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    };
 
     setMousePos({ x: e.clientX, y: e.clientY });
-
-    // Defer setting the dragged state to the next tick.
-    // This prevents the browser from cancelling the native drag session
-    // when the source element collapses / hides.
-    setTimeout(() => {
-      setDraggedTaskId(task._id);
-      setDraggedTask(task);
-    }, 0);
-  };
-
-  const handleDragEnd = () => {
-    setDraggedTaskId(null);
-    setDraggedTask(null);
-    setDragOverColumn(null);
-    dragCounter.current = { todo: 0, 'in-progress': 0, done: 0 };
-  };
-
-  const handleDragEnter = (e, columnStatus) => {
-    e.preventDefault();
-    if (!dragCounter.current[columnStatus]) {
-      dragCounter.current[columnStatus] = 0;
-    }
-    dragCounter.current[columnStatus]++;
-    if (dragCounter.current[columnStatus] === 1) {
-      setDragOverColumn(columnStatus);
-    }
-  };
-
-  const handleDragLeave = (e, columnStatus) => {
-    e.preventDefault();
-    dragCounter.current[columnStatus]--;
-    if (dragCounter.current[columnStatus] <= 0) {
-      dragCounter.current[columnStatus] = 0;
-      if (dragOverColumn === columnStatus) {
-        setDragOverColumn(null);
-      }
-    }
-  };
-
-  const handleDropOnColumn = async (e, targetStatus) => {
-    e.preventDefault();
-    dragCounter.current = { todo: 0, 'in-progress': 0, done: 0 };
-    setDragOverColumn(null);
-
-    const taskId = e.dataTransfer.getData('text/plain') || draggedTaskId;
-    if (!taskId) return;
-
-    // Find the task in the current list
-    const taskIndex = tasks.findIndex(t => t._id === taskId);
-    if (taskIndex === -1 || tasks[taskIndex].status === targetStatus) return;
-
-    // Optimistically update status in UI
-    const updatedTasks = [...tasks];
-    const originalStatus = updatedTasks[taskIndex].status;
-    updatedTasks[taskIndex] = {
-      ...updatedTasks[taskIndex],
-      status: targetStatus,
-      completedDate: targetStatus === 'done' ? new Date().toISOString() : null
-    };
-    setTasks(updatedTasks);
-
-    // Persist changes in backend
-    try {
-      const res = await fetch(`http://localhost:3000/it-tasks/${taskId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: targetStatus }),
-      });
-
-      if (!res.ok) {
-        throw new Error('Failed to update task status in database');
-      }
-      
-      // Refresh to pull precise dates set by backend
-      fetchTasks();
-    } catch (err) {
-      console.error('Drag drop error:', err);
-      // Revert optimistic updates
-      fetchTasks();
-    }
+    setDraggedTaskId(task._id);
+    setDraggedTask(task);
   };
 
   // Helper date calculations
@@ -734,12 +732,14 @@ export default function ITProjectManager({ user, staff = [] }) {
 
   // Filters & Counts
   const filteredTasks = tasks.filter(task => {
+    const names = Array.isArray(task.assigneeNames) ? task.assigneeNames.join(' ') : (task.assigneeName || '');
     const matchesSearch =
       task.title.toLowerCase().includes(search.toLowerCase()) ||
       (task.description || '').toLowerCase().includes(search.toLowerCase()) ||
-      task.assigneeName.toLowerCase().includes(search.toLowerCase());
-    
-    const matchesAssignee = filterAssignee === 'all' || task.assigneeId === filterAssignee;
+      names.toLowerCase().includes(search.toLowerCase());
+
+    const ids = Array.isArray(task.assigneeIds) ? task.assigneeIds : (task.assigneeId ? [task.assigneeId] : []);
+    const matchesAssignee = filterAssignee === 'all' || ids.includes(filterAssignee);
 
     return matchesSearch && matchesAssignee;
   });
@@ -761,6 +761,26 @@ export default function ITProjectManager({ user, staff = [] }) {
       return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
     }
     return name[0].toUpperCase();
+  };
+
+  const getAvatarGradient = (name) => {
+    if (!name) return 'linear-gradient(135deg, #64748b, #475569)';
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const gradients = [
+      'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+      'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)',
+      'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+      'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+      'linear-gradient(135deg, #ec4899 0%, #db2777 100%)',
+      'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+      'linear-gradient(135deg, #f43f5e 0%, #e11d48 100%)',
+      'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)',
+    ];
+    const idx = Math.abs(hash) % gradients.length;
+    return gradients[idx];
   };
 
   return (
@@ -884,12 +904,9 @@ export default function ITProjectManager({ user, staff = [] }) {
       {/* ── Kanban Columns ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', alignItems: 'start' }}>
         {/* TO DO COLUMN */}
-        <div 
+        <div
+          ref={todoColRef}
           className={`it-column-container ${dragOverColumn === 'todo' ? 'drag-over-todo' : ''}`}
-          onDragOver={(e) => e.preventDefault()}
-          onDragEnter={(e) => handleDragEnter(e, 'todo')}
-          onDragLeave={(e) => handleDragLeave(e, 'todo')}
-          onDrop={(e) => handleDropOnColumn(e, 'todo')}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
             <h3 style={{ fontSize: '0.9rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--navy-mid)', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -902,23 +919,20 @@ export default function ITProjectManager({ user, staff = [] }) {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minHeight: '350px' }}>
             {filteredTasks.filter(t => t.status === 'todo').map(task => (
-              <TaskCard key={task._id} task={task} onOpen={handleOpenEdit} getRemainingText={getRemainingText} getTaskStatusLabel={getTaskStatusLabel} formatTaskDate={formatTaskDate} getInitials={getInitials} onDragStart={(e) => handleDragStart(e, task)} onDragEnd={handleDragEnd} isDragging={draggedTaskId === task._id} />
+              <TaskCard key={task._id} task={task} onOpen={handleOpenEdit} getRemainingText={getRemainingText} getTaskStatusLabel={getTaskStatusLabel} formatTaskDate={formatTaskDate} getInitials={getInitials} getAvatarGradient={getAvatarGradient} onPointerDown={(e) => handlePointerDown(e, task)} isDragging={draggedTaskId === task._id} />
             ))}
             {filteredTasks.filter(t => t.status === 'todo').length === 0 && (
-              <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem', padding: '48px 0', border: '1.5px dashed #cbd5e1', borderRadius: 'var(--radius-sm)', background: 'rgba(255, 255, 255, 0.4)' }}>
-                Drag tasks here
+              <div className={`it-column-empty-hint ${dragOverColumn === 'todo' ? 'active' : ''}`}>
+                Drop tasks here
               </div>
             )}
           </div>
         </div>
 
         {/* IN PROGRESS COLUMN */}
-        <div 
+        <div
+          ref={inProgressColRef}
           className={`it-column-container ${dragOverColumn === 'in-progress' ? 'drag-over-inprogress' : ''}`}
-          onDragOver={(e) => e.preventDefault()}
-          onDragEnter={(e) => handleDragEnter(e, 'in-progress')}
-          onDragLeave={(e) => handleDragLeave(e, 'in-progress')}
-          onDrop={(e) => handleDropOnColumn(e, 'in-progress')}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
             <h3 style={{ fontSize: '0.9rem', fontWeight: 800, textTransform: 'uppercase', color: '#0ea5e9', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -931,23 +945,20 @@ export default function ITProjectManager({ user, staff = [] }) {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minHeight: '350px' }}>
             {filteredTasks.filter(t => t.status === 'in-progress').map(task => (
-              <TaskCard key={task._id} task={task} onOpen={handleOpenEdit} getRemainingText={getRemainingText} getTaskStatusLabel={getTaskStatusLabel} formatTaskDate={formatTaskDate} getInitials={getInitials} onDragStart={(e) => handleDragStart(e, task)} onDragEnd={handleDragEnd} isDragging={draggedTaskId === task._id} />
+              <TaskCard key={task._id} task={task} onOpen={handleOpenEdit} getRemainingText={getRemainingText} getTaskStatusLabel={getTaskStatusLabel} formatTaskDate={formatTaskDate} getInitials={getInitials} getAvatarGradient={getAvatarGradient} onPointerDown={(e) => handlePointerDown(e, task)} isDragging={draggedTaskId === task._id} />
             ))}
             {filteredTasks.filter(t => t.status === 'in-progress').length === 0 && (
-              <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem', padding: '48px 0', border: '1.5px dashed #bae6fd', borderRadius: 'var(--radius-sm)', background: 'rgba(255, 255, 255, 0.4)' }}>
-                Drag tasks here
+              <div className={`it-column-empty-hint ${dragOverColumn === 'in-progress' ? 'active' : ''}`}>
+                Drop tasks here
               </div>
             )}
           </div>
         </div>
 
         {/* COMPLETED COLUMN */}
-        <div 
+        <div
+          ref={doneColRef}
           className={`it-column-container ${dragOverColumn === 'done' ? 'drag-over-done' : ''}`}
-          onDragOver={(e) => e.preventDefault()}
-          onDragEnter={(e) => handleDragEnter(e, 'done')}
-          onDragLeave={(e) => handleDragLeave(e, 'done')}
-          onDrop={(e) => handleDropOnColumn(e, 'done')}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
             <h3 style={{ fontSize: '0.9rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--teal-dim)', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -960,7 +971,7 @@ export default function ITProjectManager({ user, staff = [] }) {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minHeight: '350px' }}>
             {filteredTasks.filter(t => t.status === 'done').map(task => (
-              <TaskCard key={task._id} task={task} onOpen={handleOpenEdit} getRemainingText={getRemainingText} getTaskStatusLabel={getTaskStatusLabel} formatTaskDate={formatTaskDate} getInitials={getInitials} onDragStart={(e) => handleDragStart(e, task)} onDragEnd={handleDragEnd} isDragging={draggedTaskId === task._id} />
+              <TaskCard key={task._id} task={task} onOpen={handleOpenEdit} getRemainingText={getRemainingText} getTaskStatusLabel={getTaskStatusLabel} formatTaskDate={formatTaskDate} getInitials={getInitials} getAvatarGradient={getAvatarGradient} onPointerDown={(e) => handlePointerDown(e, task)} isDragging={draggedTaskId === task._id} />
             ))}
             {filteredTasks.filter(t => t.status === 'done').length === 0 && (
               <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem', padding: '48px 0', border: '1.5px dashed #bbf7d0', borderRadius: 'var(--radius-sm)', background: 'rgba(255, 255, 255, 0.4)' }}>
@@ -1202,22 +1213,40 @@ export default function ITProjectManager({ user, staff = [] }) {
 
               <div className="modal-field">
                 <label style={{ fontFamily: 'inherit' }}>Assign To <span className="required-asterisk">*</span></label>
-                <select
-                  required
-                  value={assigneeId}
-                  onChange={e => setAssigneeId(e.target.value)}
-                  style={{
-                    width: '100%', padding: '10px 14px', border: '1.5px solid var(--grey-light)',
-                    borderRadius: 'var(--radius-sm)', outline: 'none', background: 'var(--off-white)',
-                    fontFamily: 'inherit', fontSize: '0.875rem', color: 'var(--navy)', cursor: 'pointer'
-                  }}
-                >
-                  {staff.map(emp => (
-                    <option key={emp.employee_id} value={emp.employee_id}>
-                      {emp.name} ({emp.department || 'No Department'})
-                    </option>
-                  ))}
-                </select>
+                <div className="assignee-checklist">
+                  {staff.map(emp => {
+                    const isChecked = assigneeIds.includes(emp.employee_id);
+                    return (
+                      <label key={emp.employee_id} className="assignee-check-item">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {
+                            setAssigneeIds(prev =>
+                              prev.includes(emp.employee_id)
+                                ? prev.filter(id => id !== emp.employee_id)
+                                : [...prev, emp.employee_id]
+                            );
+                            setFormError('');
+                          }}
+                          style={{ position: 'absolute', opacity: 0, cursor: 'pointer', height: 0, width: 0 }}
+                        />
+                        <div className={`assignee-custom-checkbox ${isChecked ? 'checked' : ''}`}>
+                          {isChecked && (
+                            <svg width="10" height="8" viewBox="0 0 10 8" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="1 4 4 7 9 1" />
+                            </svg>
+                          )}
+                        </div>
+                        <span className="assignee-check-name">{emp.name}</span>
+                        {emp.department && <span className="assignee-check-dept">{emp.department}</span>}
+                        <div className="assignee-check-avatar" style={{ background: getAvatarGradient(emp.name) }}>
+                          {getInitials(emp.name)}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="modal-field">
@@ -1477,22 +1506,40 @@ export default function ITProjectManager({ user, staff = [] }) {
 
               <div className="modal-field">
                 <label style={{ fontFamily: 'inherit' }}>Assign To <span className="required-asterisk">*</span></label>
-                <select
-                  required
-                  value={assigneeId}
-                  onChange={e => setAssigneeId(e.target.value)}
-                  style={{
-                    width: '100%', padding: '10px 14px', border: '1.5px solid var(--grey-light)',
-                    borderRadius: 'var(--radius-sm)', outline: 'none', background: 'var(--off-white)',
-                    fontFamily: 'inherit', fontSize: '0.875rem', color: 'var(--navy)', cursor: 'pointer'
-                  }}
-                >
-                  {staff.map(emp => (
-                    <option key={emp.employee_id} value={emp.employee_id}>
-                      {emp.name} ({emp.department || 'No Department'})
-                    </option>
-                  ))}
-                </select>
+                <div className="assignee-checklist">
+                  {staff.map(emp => {
+                    const isChecked = assigneeIds.includes(emp.employee_id);
+                    return (
+                      <label key={emp.employee_id} className="assignee-check-item">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {
+                            setAssigneeIds(prev =>
+                              prev.includes(emp.employee_id)
+                                ? prev.filter(id => id !== emp.employee_id)
+                                : [...prev, emp.employee_id]
+                            );
+                            setFormError('');
+                          }}
+                          style={{ position: 'absolute', opacity: 0, cursor: 'pointer', height: 0, width: 0 }}
+                        />
+                        <div className={`assignee-custom-checkbox ${isChecked ? 'checked' : ''}`}>
+                          {isChecked && (
+                            <svg width="10" height="8" viewBox="0 0 10 8" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="1 4 4 7 9 1" />
+                            </svg>
+                          )}
+                        </div>
+                        <span className="assignee-check-name">{emp.name}</span>
+                        {emp.department && <span className="assignee-check-dept">{emp.department}</span>}
+                        <div className="assignee-check-avatar" style={{ background: getAvatarGradient(emp.name) }}>
+                          {getInitials(emp.name)}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="modal-field">
@@ -1535,30 +1582,30 @@ export default function ITProjectManager({ user, staff = [] }) {
         </div>
       )}
 
-      {/* Custom Drag Preview Layer */}
+      {/* Floating drag ghost — pure pointer events, no HTML5 drag API */}
       {draggedTask && (
-        <div style={{
-          position: 'fixed',
-          left: mousePos.x - 140,
-          top: mousePos.y - 45,
-          width: '280px',
-          pointerEvents: 'none',
-          zIndex: 9999,
-          boxShadow: '0 20px 25px -5px rgba(15, 23, 42, 0.15), 0 10px 10px -5px rgba(15, 23, 42, 0.1)',
-          transform: 'rotate(2deg)',
-          opacity: 1,
-          transition: 'none'
-        }}>
-          <TaskCard 
-            task={draggedTask} 
-            onOpen={() => {}} 
-            getRemainingText={getRemainingText} 
-            getTaskStatusLabel={getTaskStatusLabel} 
-            formatTaskDate={formatTaskDate} 
-            getInitials={getInitials} 
-            onDragStart={() => {}} 
-            onDragEnd={() => {}} 
-            isDragging={false} 
+        <div
+          className="custom-drag-preview"
+          style={{
+            position: 'fixed',
+            left: mousePos.x - dragGrabOffset.current.x,
+            top: mousePos.y - dragGrabOffset.current.y,
+            width: '280px',
+            pointerEvents: 'none',
+            zIndex: 9999,
+            transition: 'none',
+          }}
+        >
+          <TaskCard
+            task={draggedTask}
+            onOpen={() => {}}
+            getRemainingText={getRemainingText}
+            getTaskStatusLabel={getTaskStatusLabel}
+            formatTaskDate={formatTaskDate}
+            getInitials={getInitials}
+            getAvatarGradient={getAvatarGradient}
+            onPointerDown={() => {}}
+            isDragging={false}
             isPreview={true}
           />
         </div>
@@ -1568,30 +1615,9 @@ export default function ITProjectManager({ user, staff = [] }) {
 }
 
 // Sub-Component: TaskCard
-function TaskCard({ task, onOpen, getRemainingText, getTaskStatusLabel, formatTaskDate, getInitials, onDragStart, onDragEnd, isDragging, isPreview = false }) {
+function TaskCard({ task, onOpen, getRemainingText, getTaskStatusLabel, formatTaskDate, getInitials, getAvatarGradient, onPointerDown, isDragging, isPreview = false }) {
   const remainingText = getRemainingText(task);
   const isOverdue = !task.completedDate && (new Date(task.dueDate).getTime() < new Date().getTime());
-
-  // Dynamic colors for avatar background based on initial
-  const getAvatarGradient = (name) => {
-    if (!name) return 'linear-gradient(135deg, #64748b, #475569)';
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-      hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const gradients = [
-      'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', // Indigo
-      'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)', // Sky
-      'linear-gradient(135deg, #10b981 0%, #059669 100%)', // Emerald
-      'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', // Amber
-      'linear-gradient(135deg, #ec4899 0%, #db2777 100%)', // Pink
-      'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', // Violet
-      'linear-gradient(135deg, #f43f5e 0%, #e11d48 100%)', // Rose
-      'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)', // Teal
-    ];
-    const idx = Math.abs(hash) % gradients.length;
-    return gradients[idx];
-  };
 
   // Modern soft badge style helper
   const getBadgeStyle = (status, isOverdue) => {
@@ -1610,22 +1636,16 @@ function TaskCard({ task, onOpen, getRemainingText, getTaskStatusLabel, formatTa
 
   const badgeText = isOverdue ? 'Overdue' : (task.status === 'done' ? 'Completed' : (task.status === 'in-progress' ? 'In Progress' : 'To Do'));
 
+  // When this card is being dragged, show a ghost placeholder that keeps layout stable
+  if (isDragging) {
+    return <div className="it-task-drag-placeholder" />;
+  }
+
   return (
     <div
-      draggable
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onClick={() => onOpen(task)}
-      style={{
-        opacity: isDragging ? 0 : 1,
-        height: isDragging ? 0 : undefined,
-        margin: isDragging ? 0 : undefined,
-        padding: isDragging ? 0 : undefined,
-        border: isDragging ? 'none' : undefined,
-        overflow: isDragging ? 'hidden' : undefined,
-        pointerEvents: isDragging ? 'none' : undefined,
-      }}
-      className={`it-task-card status-${task.status} ${isOverdue ? 'is-overdue' : ''} ${isDragging ? 'is-dragging' : ''}`}
+      onPointerDown={isPreview ? undefined : onPointerDown}
+      className={`it-task-card status-${task.status} ${isOverdue ? 'is-overdue' : ''}`}
+      style={{ touchAction: 'none' }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: '8px' }}>
         <h4>
@@ -1664,7 +1684,7 @@ function TaskCard({ task, onOpen, getRemainingText, getTaskStatusLabel, formatTa
         </div>
       </div>
 
-      {/* Footer info: Assigned to badge and remaining time */}
+      {/* Footer info: Assigned to badge, remaining time, and edit button */}
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -1673,24 +1693,59 @@ function TaskCard({ task, onOpen, getRemainingText, getTaskStatusLabel, formatTa
         paddingTop: '10px',
         marginTop: '2px'
       }}>
-        {/* Assigned to */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title={`Assigned to ${task.assigneeName}`}>
-          <div className="it-avatar-circle" style={{ background: getAvatarGradient(task.assigneeName) }}>
-            {getInitials(task.assigneeName)}
+        {/* Assigned to — shows up to 3 stacked avatars */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ display: 'flex' }}>
+            {(Array.isArray(task.assigneeNames) ? task.assigneeNames : (task.assigneeName ? [task.assigneeName] : [])).slice(0, 3).map((name, i) => (
+              <div
+                key={i}
+                className="it-avatar-circle"
+                title={`Assigned to ${name}`}
+                style={{
+                  background: getAvatarGradient(name),
+                  marginLeft: i > 0 ? '-8px' : 0,
+                  border: '2px solid white',
+                  zIndex: 3 - i,
+                  position: 'relative',
+                }}
+              >
+                {getInitials(name)}
+              </div>
+            ))}
           </div>
-          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--navy-mid)' }}>
-            {task.assigneeName.split(' ')[0]}
-          </span>
+          {(Array.isArray(task.assigneeNames) ? task.assigneeNames : (task.assigneeName ? [task.assigneeName] : [])).length > 0 && (
+            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--navy-mid)' }}>
+              {(Array.isArray(task.assigneeNames) ? task.assigneeNames : [task.assigneeName])[0].split(' ')[0]}
+              {(Array.isArray(task.assigneeNames) ? task.assigneeNames : [task.assigneeName]).length > 1 &&
+                ` +${(Array.isArray(task.assigneeNames) ? task.assigneeNames : [task.assigneeName]).length - 1}`}
+            </span>
+          )}
         </div>
 
-        {/* Days/hours remaining or overdue */}
-        <span style={{
-          fontSize: '0.72rem',
-          fontWeight: 700,
-          color: isOverdue ? 'var(--red)' : (task.status === 'done' ? 'var(--teal-dim)' : 'var(--navy-mid)')
-        }}>
-          {remainingText}
-        </span>
+        {/* Right side: remaining time + edit button */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{
+            fontSize: '0.72rem',
+            fontWeight: 700,
+            color: isOverdue ? 'var(--red)' : (task.status === 'done' ? 'var(--teal-dim)' : 'var(--navy-mid)')
+          }}>
+            {remainingText}
+          </span>
+
+          {!isPreview && (
+            <button
+              className="it-card-edit-btn"
+              onClick={(e) => { e.stopPropagation(); onOpen(task); }}
+              title="Edit task"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+              Edit
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

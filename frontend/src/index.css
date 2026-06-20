@@ -1196,25 +1196,55 @@ tbody tr:last-child td:last-child { border-bottom-right-radius: var(--radius); }
   animation: cardEnter 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
-/* Custom drag preview card animation override */
+/* Custom drag preview card: floats above everything, animated pop-in + slight tilt */
+.custom-drag-preview {
+  animation: drag-pop-in 0.12s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  filter: drop-shadow(0 20px 28px rgba(15, 23, 42, 0.22)) drop-shadow(0 6px 8px rgba(15, 23, 42, 0.1));
+}
 .custom-drag-preview .it-task-card {
   animation: none !important;
+  transform: rotate(1.5deg) scale(1.04) !important;
+  opacity: 0.97;
+  cursor: grabbing;
+  border-color: var(--teal) !important;
+  box-shadow: 0 0 0 2px rgba(5, 151, 148, 0.25) !important;
 }
 
-/* Placeholder styling for the card left in the column during drag */
-.it-task-card.is-dragging {
-  opacity: 0 !important;
-  height: 0 !important;
-  min-height: 0 !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  border: none !important;
-  border-width: 0 !important;
-  overflow: hidden !important;
-  pointer-events: none !important;
-  gap: 0 !important;
-  box-shadow: none !important;
-  transform: none !important;
+@keyframes drag-pop-in {
+  from { transform: rotate(0deg) scale(0.96); opacity: 0.4; }
+  to   { transform: rotate(1.5deg) scale(1.04); opacity: 1; }
+}
+
+/* Placeholder shown in the column where the card was picked up */
+.it-task-drag-placeholder {
+  border: 2px dashed #cbd5e1;
+  border-radius: var(--radius-sm);
+  background: rgba(148, 163, 184, 0.05);
+  min-height: 82px;
+  animation: placeholder-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes placeholder-pulse {
+  0%, 100% { border-color: #cbd5e1; background: rgba(148, 163, 184, 0.05); }
+  50%       { border-color: #94a3b8; background: rgba(148, 163, 184, 0.10); }
+}
+
+/* Empty column drop hint — shown when a column has no tasks */
+.it-column-empty-hint {
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.8rem;
+  padding: 48px 0;
+  border: 1.5px dashed #cbd5e1;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.4);
+  transition: all 0.2s ease;
+}
+.it-column-empty-hint.active {
+  border-color: var(--teal);
+  background: rgba(5, 151, 148, 0.04);
+  color: var(--teal);
+  font-weight: 600;
 }
 
 @keyframes cardEnter {
@@ -1257,7 +1287,7 @@ tbody tr:last-child td:last-child { border-bottom-right-radius: var(--radius); }
 
 .it-task-card p {
   font-size: 0.85rem !important;
-  color: var(--navy-mid) !important; /* Muted but dark navy, extremely clear */
+  color: var(--navy-mid); /* Muted but dark navy, extremely clear */
   line-height: 1.45;
   margin: 0;
 }
@@ -1313,6 +1343,115 @@ tbody tr:last-child td:last-child { border-bottom-right-radius: var(--radius); }
   justify-content: center;
   box-shadow: 0 1px 3px rgba(0,0,0,0.1);
   text-shadow: 0 0.5px 1px rgba(0,0,0,0.15);
+}
+
+/* Edit button on task cards */
+.it-card-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1.5px solid var(--grey-light);
+  background: white;
+  color: var(--grey);
+  cursor: pointer;
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: inherit;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.it-card-edit-btn:hover {
+  background: var(--teal);
+  border-color: var(--teal);
+  color: white;
+  box-shadow: 0 3px 8px rgba(5, 151, 148, 0.3);
+}
+.it-card-edit-btn:active {
+  opacity: 0.85;
+}
+
+/* Assignee multi-select checklist */
+.assignee-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1.5px solid var(--grey-light);
+  border-radius: 12px;
+  padding: 8px;
+  background: #ffffff;
+  scrollbar-width: thin;
+  scrollbar-color: var(--teal-dim) var(--grey-light);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.assignee-check-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+  background: transparent;
+  border: 1px solid transparent;
+}
+.assignee-check-item:hover {
+  background: rgba(5, 151, 148, 0.04);
+  border-color: rgba(5, 151, 148, 0.12);
+}
+.assignee-custom-checkbox {
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--grey-light);
+  border-radius: 4px;
+  background: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+}
+.assignee-custom-checkbox.checked {
+  background: var(--teal);
+  border-color: var(--teal);
+}
+.assignee-check-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+.assignee-check-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--navy);
+  margin-right: auto;
+}
+.assignee-check-dept {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--teal-dim);
+  background: rgba(5, 151, 148, 0.08);
+  padding: 3px 8px;
+  border-radius: 6px;
+  margin-right: 8px;
+  flex-shrink: 0;
 }
 
 /* Date list and item layouts */
